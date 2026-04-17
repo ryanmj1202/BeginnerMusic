@@ -1,17 +1,66 @@
 # BeginnerMusic
 
-프론트엔드
+BeginnerMusic is a beginner-friendly web music composition tool built with React, TypeScript, Vite, Tone.js, and Firebase Firestore.
 
-React - UI 관리하는 것이 쉬움. (음악 사이트는 트랙 변경 등 UI가 많이 바뀌기 때문에 관리를 잘 해야 해서 필요함.)
-Vite - 코드 실행을 제때 해주기 때문에 개발 속도가 빨라짐.
-TypeScript - 코드에서 데이터 관리하는 것이 쉬움. (자동 믹스 기능에서 오디오의 음량 같은 데이터를 다뤄야 하는데 데이터 형식이 어떤 건질 알면 데이터 주고 받기가 쉬워짐.)
-Tone.js - 음악 관련해서 지원해 주는 기능이 많고 다루기 쉬움.
+## Why this stack
 
-백엔드
+- React: dynamic timeline, tracks, piano roll, and pattern UIs fit well into component-based state updates.
+- Vite: fast local startup and HMR keep iteration speed high while building audio UI.
+- TypeScript: track, note, pattern, and mixing data need strict typing to reduce runtime bugs.
+- Tone.js: wraps the Web Audio API for instruments, scheduling, and transport control.
+- Firebase Firestore: stores projects without introducing a custom backend server.
+- Vercel: simple deployment target for a Vite frontend.
 
-Firebase - 사용이 매우 쉬움. (데이터 저장을 해야 하는데 Firebase가 데이터 저장이 수월함.)
-(음악 작곡 하다가 새로고침 하면 작곡하던 게 다 날라가서 저장해줄 창고가 필요함.)
+## Setup
 
-배포
+1. Install dependencies:
 
-Vercel - 배포하는데 어려움이 없음.
+```bash
+npm.cmd install
+```
+
+2. Add local environment variables:
+
+```bash
+Copy-Item .env.example .env.local
+```
+
+3. Fill in your Firebase values in `.env.local` when Firebase work starts.
+   The first editor milestone can run without Firebase values.
+
+4. Start local development:
+
+```bash
+npm.cmd run dev
+```
+
+PowerShell may block `npm.ps1` on this machine, so use `npm.cmd` for local commands.
+
+## Project structure
+
+```text
+src/
+  components/
+  features/
+    piano-roll/
+    drum-pattern/
+    automix/
+    chord-engine/
+  lib/
+    audio/
+    firebase/
+    mixing/
+    music-theory/
+    terminology/
+  store/
+  types/
+```
+
+## Implemented scaffold
+
+- Terminology simplification layer with user-facing labels like `세기` and `소리 크기`
+- Drum pattern reference expansion logic
+- Deterministic chord recommendation engine
+- AutoMix interference calculation module
+- Firebase initialization and project repository example
+- Demo dashboard wiring those modules together
