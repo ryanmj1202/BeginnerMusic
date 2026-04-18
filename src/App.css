@@ -124,8 +124,8 @@ button:disabled {
 
 .editor-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 230px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 180px;
   grid-template-areas:
     "tracks roll"
     "details details";
@@ -405,7 +405,7 @@ button:disabled {
 
 .instrument-category-list button,
 .instrument-choice-list button {
-  display: flex;
+  display: grid;
   align-items: center;
   width: 100%;
   min-height: 32px;
@@ -420,12 +420,28 @@ button:disabled {
 
 .instrument-category-list button {
   gap: 0.5rem;
+  grid-template-columns: 28px minmax(0, 1fr);
 }
 
-.instrument-category-list button span {
-  width: 18px;
-  color: #d9e0ec;
-  text-align: center;
+.instrument-choice-list button {
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 0.55rem;
+  min-height: 38px;
+}
+
+.instrument-category-list img,
+.instrument-choice-list img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.instrument-choice-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .instrument-category-list button:hover,
@@ -554,6 +570,7 @@ button:disabled {
 .roll-tools {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.55rem;
   color: #dce3ef;
 }
@@ -574,12 +591,62 @@ button:disabled {
   color: #ffffff;
 }
 
+.division-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.division-buttons button {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: 34px;
+  height: 32px;
+  place-items: center;
+  border-radius: 4px;
+  background: #171b23;
+  color: #aab5c5;
+  padding: 0;
+}
+
+.division-buttons button.is-active {
+  background: #4256de;
+  color: #ffffff;
+}
+
+.division-buttons img {
+  width: 21px;
+  height: 21px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.division-buttons small {
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
+.roll-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.roll-zoom-controls span {
+  min-width: 44px;
+  color: #9ba7b8;
+  font-size: 0.76rem;
+  text-align: center;
+}
+
 .piano-roll {
   display: grid;
   grid-template-columns: 64px minmax(1024px, 1fr);
   grid-auto-rows: 32px;
-  height: calc(100vh - 40px - 46px - 230px);
+  height: calc(100vh - 40px - 46px - 180px);
   overflow: auto;
+  position: relative;
+  contain: layout paint;
 }
 
 .corner-cell,
@@ -651,6 +718,59 @@ button:disabled {
   border-left: 1px solid #586171;
 }
 
+.roll-grid-guides,
+.roll-playhead-layer {
+  position: absolute;
+  left: 64px;
+  top: 32px;
+  width: max(var(--roll-grid-width), calc(100% - 64px));
+  height: var(--roll-grid-height);
+  pointer-events: none;
+}
+
+.roll-grid-guides {
+  z-index: 0;
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--step-width) - 1px),
+      #292f3a calc(var(--step-width) - 1px),
+      #292f3a var(--step-width)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--beat-width) - 1px),
+      #343b48 calc(var(--beat-width) - 1px),
+      #343b48 var(--beat-width)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--bar-width) - 1px),
+      #566071 calc(var(--bar-width) - 1px),
+      #566071 var(--bar-width)
+    ),
+    #20242d;
+}
+
+.roll-playhead-layer {
+  z-index: 6;
+}
+
+.roll-playhead {
+  position: absolute;
+  left: var(--playhead-left, 0%);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ff3131;
+  opacity: 0.9;
+  transform: translateX(-0.5px);
+  will-change: left;
+}
+
 .roll-row {
   display: contents;
 }
@@ -689,34 +809,13 @@ button:disabled {
   position: relative;
   min-width: 0;
   border-bottom: 1px solid #292f3a;
-  background:
-    repeating-linear-gradient(
-      to right,
-      transparent 0,
-      transparent calc((100% / var(--total-steps)) - 1px),
-      #292f3a calc((100% / var(--total-steps)) - 1px),
-      #292f3a calc(100% / var(--total-steps))
-    ),
-    repeating-linear-gradient(
-      to right,
-      transparent 0,
-      transparent calc((400% / var(--total-steps)) - 1px),
-      #343b48 calc((400% / var(--total-steps)) - 1px),
-      #343b48 calc(400% / var(--total-steps))
-    ),
-    repeating-linear-gradient(
-      to right,
-      transparent 0,
-      transparent calc((1600% / var(--total-steps)) - 1px),
-      #566071 calc((1600% / var(--total-steps)) - 1px),
-      #566071 calc(1600% / var(--total-steps))
-    ),
-    #20242d;
+  background: transparent;
   cursor: default;
+  contain: layout paint;
 }
 
 .step-row:nth-child(4n + 1) {
-  background-color: #1c2028;
+  background-color: rgba(28, 32, 40, 0.28);
 }
 
 .note-block {
@@ -731,18 +830,7 @@ button:disabled {
   cursor: grab;
   padding: 0;
   z-index: 3;
-}
-
-.playhead {
-  position: absolute;
-  left: var(--playhead-left, 0%);
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: #ff3131;
-  opacity: 0.9;
-  pointer-events: none;
-  z-index: 4;
+  contain: layout paint;
 }
 
 .note-block:hover,
@@ -754,6 +842,11 @@ button:disabled {
   border-color: #dbe0ff;
   background: #7d8dff;
   cursor: grabbing;
+  will-change: left, width;
+}
+
+.note-block.is-resizing {
+  will-change: width;
 }
 
 .note-block.is-selected {
@@ -797,17 +890,34 @@ button:disabled {
 }
 
 .detail-tabs button {
+  display: grid;
+  align-content: center;
+  gap: 0.05rem;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: #8f9bad;
-  padding: 0 0.9rem;
+  padding: 0 0.8rem;
   font-size: 0.78rem;
+}
+
+.detail-tabs button span,
+.detail-tabs button small {
+  line-height: 1;
+}
+
+.detail-tabs button small {
+  color: #6f7b8d;
+  font-size: 0.64rem;
 }
 
 .detail-tabs button.is-active {
   color: #ffffff;
   box-shadow: inset 0 -2px 0 #5365d9;
+}
+
+.detail-tabs button.is-active small {
+  color: #c8d0ff;
 }
 
 .velocity-lane {
@@ -821,6 +931,7 @@ button:disabled {
     #171a1f;
   background-size: 64px 100%, 100% 33.333%;
   overflow: hidden;
+  contain: layout paint;
 }
 
 .tempo-panel {
@@ -899,6 +1010,45 @@ button:disabled {
   border-radius: 1px 1px 0 0;
   background: #5365d9;
   padding: 0;
+  contain: layout paint;
+}
+
+.terminology-strip {
+  position: absolute;
+  left: 14px;
+  top: 10px;
+  right: 300px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  pointer-events: none;
+}
+
+.terminology-strip article {
+  min-width: 0;
+  border: 1px solid #303746;
+  border-radius: 4px;
+  background: rgba(34, 38, 48, 0.86);
+  padding: 0.34rem 0.45rem;
+}
+
+.terminology-strip strong,
+.terminology-strip span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminology-strip strong {
+  color: #ffffff;
+  font-size: 0.72rem;
+}
+
+.terminology-strip span {
+  color: #9ba7b8;
+  font-size: 0.66rem;
 }
 
 .velocity-bar.is-selected {
@@ -980,6 +1130,12 @@ button:disabled {
 
   .piano-roll {
     height: 560px;
+  }
+
+  .terminology-strip {
+    position: static;
+    grid-template-columns: 1fr;
+    margin: 0.55rem 0.7rem 0;
   }
 
   .transport-bar {

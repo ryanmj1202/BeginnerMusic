@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BeginnerMusic Translation Editor</title>
+    <style>
+      :root {
+        color: #20242d;
+        background: #f5f7fb;
+        font-family: Arial, "Noto Sans KR", sans-serif;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+        border-bottom: 1px solid #d6dbe6;
+        background: #ffffff;
+        padding: 14px 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 4px 0 0;
+        color: #5c6678;
+        font-size: 13px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      button,
+      label.file-button {
+        border: 1px solid #b9c1d1;
+        border-radius: 6px;
+        background: #ffffff;
+        color: #20242d;
+        cursor: pointer;
+        font: inherit;
+        font-size: 13px;
+        padding: 8px 10px;
+      }
+
+      button.primary {
+        border-color: #4256de;
+        background: #4256de;
+        color: #ffffff;
+      }
+
+      input[type="file"] {
+        display: none;
+      }
+
+      main {
+        padding: 14px 18px 24px;
+      }
+
+      .status {
+        margin-bottom: 12px;
+        color: #5c6678;
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+        box-shadow: 0 10px 30px rgba(20, 27, 40, 0.08);
+      }
+
+      th,
+      td {
+        border: 1px solid #d8deea;
+        padding: 7px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        position: sticky;
+        top: 73px;
+        z-index: 1;
+        background: #dfe7fb;
+        color: #20242d;
+        font-size: 13px;
+      }
+
+      td.meta {
+        width: 180px;
+        background: #f1f3f8;
+        color: #5c6678;
+        font-size: 12px;
+      }
+
+      td.source {
+        width: 360px;
+        color: #20242d;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 42px;
+        resize: vertical;
+        border: 1px solid #c5ccda;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font: inherit;
+        padding: 7px;
+      }
+
+      textarea:focus {
+        border-color: #4256de;
+        outline: 2px solid rgba(66, 86, 222, 0.18);
+      }
+
+      @media (max-width: 860px) {
+        header {
+          grid-template-columns: 1fr;
+        }
+
+        th {
+          top: 124px;
+        }
+
+        td.meta,
+        td.source {
+          width: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>BeginnerMusic 번역 입력기</h1>
+        <p>악기명은 제외하고, 화면에 보이는 UI 옵션만 브라우저에서 번역한 뒤 CSV로 저장합니다.</p>
+      </div>
+      <div class="actions">
+        <label class="file-button">
+          CSV 불러오기
+          <input id="fileInput" type="file" accept=".csv,text/csv" />
+        </label>
+        <button id="loadSampleButton" type="button">기본 목록 불러오기</button>
+        <button id="downloadButton" class="primary" type="button">CSV 저장하기</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="status" class="status">먼저 translation-ui-only-input.csv를 불러오거나 기본 목록을 불러오세요.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>section</th>
+            <th>id</th>
+            <th>en</th>
+            <th>ko 입력</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </main>
+
+    <script>
+      const rowsElement = document.querySelector('#rows')
+      const statusElement = document.querySelector('#status')
+      const fileInput = document.querySelector('#fileInput')
+      const loadSampleButton = document.querySelector('#loadSampleButton')
+      const downloadButton = document.querySelector('#downloadButton')
+
+      let rows = []
+
+      function parseCsv(text) {
+        const result = []
+        let row = []
+        let cell = ''
+        let quoted = false
+
+        for (let index = 0; index < text.length; index += 1) {
+          const char = text[index]
+          const next = text[index + 1]
+
+          if (quoted) {
+            if (char === '"' && next === '"') {
+              cell += '"'
+              index += 1
+            } else if (char === '"') {
+              quoted = false
+            } else {
+              cell += char
+            }
+            continue
+          }
+
+          if (char === '"') {
+            quoted = true
+          } else if (char === ',') {
+            row.push(cell)
+            cell = ''
+          } else if (char === '\n') {
+            row.push(cell)
+            result.push(row)
+            row = []
+            cell = ''
+          } else if (char !== '\r') {
+            cell += char
+          }
+        }
+
+        if (cell || row.length > 0) {
+          row.push(cell)
+          result.push(row)
+        }
+
+        return result
+      }
+
+      function toCsvCell(value) {
+        return `"${String(value ?? '').replaceAll('"', '""')}"`
+      }
+
+      function renderRows() {
+        rowsElement.innerHTML = ''
+        const fragment = document.createDocumentFragment()
+
+        rows.forEach((row, index) => {
+          const tr = document.createElement('tr')
+          const section = document.createElement('td')
+          const id = document.createElement('td')
+          const en = document.createElement('td')
+          const ko = document.createElement('td')
+          const textarea = document.createElement('textarea')
+
+          section.className = 'meta'
+          id.className = 'meta'
+          en.className = 'source'
+          section.textContent = row.section
+          id.textContent = row.id
+          en.textContent = row.en
+          textarea.value = row.ko
+          textarea.addEventListener('input', () => {
+            rows[index].ko = textarea.value
+          })
+
+          ko.append(textarea)
+          tr.append(section, id, en, ko)
+          fragment.append(tr)
+        })
+
+        rowsElement.append(fragment)
+        statusElement.textContent = `${rows.length}개 항목을 편집 중입니다. ko 입력 칸만 채우면 됩니다.`
+      }
+
+      function loadCsv(text) {
+        const parsed = parseCsv(text)
+        const header = parsed.shift() ?? []
+        const sectionIndex = header.indexOf('section')
+        const idIndex = header.indexOf('id')
+        const enIndex = header.indexOf('en')
+        const koIndex = header.indexOf('ko')
+
+        rows = parsed
+          .filter((row) => row[idIndex])
+          .map((row) => ({
+            section: row[sectionIndex] ?? '',
+            id: row[idIndex] ?? '',
+            en: row[enIndex] ?? '',
+            ko: row[koIndex] ?? '',
+          }))
+
+        renderRows()
+      }
+
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files?.[0]
+        if (!file) return
+        loadCsv(await file.text())
+      })
+
+      loadSampleButton.addEventListener('click', async () => {
+        try {
+          const response = await fetch('translation-ui-only-input.csv')
+          if (!response.ok) throw new Error('not found')
+          loadCsv(await response.text())
+        } catch {
+          statusElement.textContent = '기본 목록을 자동으로 찾지 못했습니다. CSV 불러오기로 translation-ui-only-input.csv를 선택해 주세요.'
+        }
+      })
+
+      downloadButton.addEventListener('click', () => {
+        const csv = [
+          ['section', 'id', 'en', 'ko'].map(toCsvCell).join(','),
+          ...rows.map((row) =>
+            [row.section, row.id, row.en, row.ko].map(toCsvCell).join(','),
+          ),
+        ].join('\n')
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = 'translation-ui-only-filled.csv'
+        link.click()
+        URL.revokeObjectURL(url)
+      })
+    </script>
+  </body>
+</html>

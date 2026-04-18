@@ -197,6 +197,18 @@ export function getInstrumentLabel(instrumentId: InstrumentId) {
   return program === null ? 'Clean Synth' : GM_NAMES[program]
 }
 
+export function getSoundFontInstrumentName(instrumentId: InstrumentId) {
+  if (instrumentId === 'drums') return null
+  const program = getProgramFromInstrumentId(instrumentId)
+  if (program === null) return null
+
+  return GM_NAMES[program]
+    .toLowerCase()
+    .replace(/\+/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
 export function getInstrumentImage(instrumentId: InstrumentId) {
   const program = getProgramFromInstrumentId(instrumentId)
   if (instrumentId === 'drums') return '/instrument-icons/drums.svg'

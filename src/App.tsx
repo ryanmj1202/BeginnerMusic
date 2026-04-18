@@ -4,6 +4,7 @@
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
   useEffect,
   useMemo,
   useRef,
@@ -15,9 +16,12 @@ import {
   createInstrument,
   disposePreviewNote,
   ensureAudioReady,
+  getInstrumentPreviewPitch,
+  previewNote,
   scheduleNotesInWindow,
   startPreviewNote,
   stopPreviewNote,
+  waitForInstrumentReady,
   type HeldPreview,
 } from './lib/audio/toneTransport'
 import {
@@ -30,19 +34,22 @@ import { importMidiProject } from './lib/midi/importMidi'
 import type { InstrumentId, Note, Project, Track } from './types/music'
 
 const STORAGE_KEY = 'beginner-music-project-v1'
-const STEPS_PER_BEAT = 4
-const DEFAULT_BARS = 16
+const DEFAULT_BARS = 8
 const BEATS_PER_BAR = 4
-const DEFAULT_DURATION_BEATS = 1
 const MIN_DURATION_BEATS = 0.25
 const KEY_COLUMN_WIDTH = 64
 const ROLL_HEADER_HEIGHT = 32
 const ROLL_ROW_HEIGHT = 32
+const DEFAULT_STEP_WIDTH = 20
 const AUTO_SAVE_DELAY_MS = 500
+const ACTIVE_EDIT_AUTO_SAVE_DELAY_MS = 1200
+const FLOAT_EPSILON = 0.0001
 const PLAYBACK_LOOKAHEAD_BEATS = 2
 const PLAYBACK_SCHEDULER_MS = 180
 const TEMPO_PRESETS = [60, 72, 80, 90, 100, 110, 120, 128, 140, 160, 180, 200]
 const PLAYHEAD_SCROLL_PADDING = 160
+const NOTE_DIVISIONS = [8, 16, 32, 64, 128] as const
+const ROLL_ZOOM_LEVELS = [0.5, 0.75, 1, 1.5, 2, 3] as const
 
 const PITCHES = Array.from({ length: 36 }, (_, index) => 84 - index)
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -73,29 +80,63 @@ const INSTRUMENT_CATEGORY_LABELS: Record<string, string> = {
   Pad: 'Synth Pad',
   FX: 'Synth FX',
 }
-const INSTRUMENT_CATEGORY_ICONS: Record<string, string> = {
-  Piano: '▥',
-  Chromatic: '◒',
-  Organ: '▤',
-  Guitar: '♮',
-  Bass: '▰',
-  Strings: '×',
-  Ensemble: '▥',
-  Brass: '◢',
-  Reed: '♪',
-  Pipe: '⌁',
-  Lead: '◆',
-  Pad: '◇',
-  FX: '●',
-  Ethnic: '◌',
-  Percussive: '◉',
-  'Sound FX': 'FX',
-  Drums: 'DR',
+const INSTRUMENT_CATEGORY_IMAGES: Record<string, InstrumentId> = {
+  Piano: 'gm-0',
+  Chromatic: 'gm-12',
+  Organ: 'gm-16',
+  Guitar: 'gm-24',
+  Bass: 'gm-33',
+  Strings: 'gm-40',
+  Ensemble: 'gm-48',
+  Brass: 'gm-56',
+  Reed: 'gm-65',
+  Pipe: 'gm-73',
+  Lead: 'gm-80',
+  Pad: 'gm-88',
+  FX: 'gm-96',
+  Ethnic: 'gm-104',
+  Percussive: 'gm-114',
+  'Sound FX': 'gm-123',
+  Drums: 'drums',
 }
 const TRACK_COLORS = ['#5365d9', '#21a67a', '#d69b32', '#c95c8c', '#6a78f0', '#9b6bd3']
+const TERMINOLOGY_HELP = [
+  {
+    term: 'Velocity',
+    label: '소리 세기',
+    description: '음표 하나가 얼마나 세게 연주되는지 정합니다.',
+  },
+  {
+    term: 'Pitch Bend',
+    label: '음높이 휘기',
+    description: '음이 위아래로 미끄러지듯 변하는 느낌입니다.',
+  },
+  {
+    term: 'Volume',
+    label: '트랙 음량',
+    description: '트랙 전체가 얼마나 크게 들리는지 정합니다.',
+  },
+  {
+    term: 'Panpot',
+    label: '좌우 위치',
+    description: '소리가 왼쪽, 가운데, 오른쪽 중 어디서 들릴지 정합니다.',
+  },
+  {
+    term: 'Expression',
+    label: '연주 느낌',
+    description: '연주 중간의 세밀한 크기 변화를 다룹니다.',
+  },
+  {
+    term: 'Modulation',
+    label: '떨림',
+    description: '비브라토처럼 음에 흔들림을 더하는 값입니다.',
+  },
+]
 
 type PlaybackInstrument = ReturnType<typeof createInstrument>
 type ToolMode = 'draw' | 'erase'
+type NoteDivision = (typeof NOTE_DIVISIONS)[number]
+type RollZoom = (typeof ROLL_ZOOM_LEVELS)[number]
 
 type NoteDrag = {
   active: boolean
@@ -111,11 +152,32 @@ type TrackContextMenu = {
   y: number
 } | null
 
+type RollPointerGeometry = {
+  gridWidth: number
+  rect: DOMRect
+  totalSteps: number
+}
+
+type PendingPointerMove = {
+  buttons: number
+  clientX: number
+  clientY: number
+}
+
 type ActivePlaybackTrack = {
   id: string
   instrument: PlaybackInstrument
   notes: Note[]
   nextIndex: number
+}
+
+type OtherNote = Note & { trackId: string }
+
+type OtherNotesByPitchCache = {
+  noteArrays: Note[][]
+  selectedTrackId: string | undefined
+  trackIds: string[]
+  value: Map<number, OtherNote[]>
 }
 
 type InteractionHandlers = {
@@ -124,6 +186,7 @@ type InteractionHandlers = {
   moveDraggedNoteFromPointer: (clientX: number, clientY: number) => void
   stopHeldPreview: () => void
   togglePlayback: () => void
+  zoomRoll: (direction: -1 | 1) => void
 }
 
 function createId(prefix: string) {
@@ -211,19 +274,38 @@ function readSavedProject() {
   }
 }
 
-function getNotesEndBeat(notesByTrack: Project['notesByTrack']) {
-  return Object.values(notesByTrack)
-    .flat()
-    .reduce((endBeat, note) => Math.max(endBeat, note.startBeat + note.durationBeats), 0)
+const trackEndBeatCache = new WeakMap<Note[], number>()
+
+function getTrackEndBeat(notes: Note[]) {
+  const cached = trackEndBeatCache.get(notes)
+  if (cached !== undefined) return cached
+
+  const endBeat = notes.reduce(
+    (latestEnd, note) => Math.max(latestEnd, note.startBeat + note.durationBeats),
+    0,
+  )
+  trackEndBeatCache.set(notes, endBeat)
+  return endBeat
 }
 
-function isTextEditingTarget(target: EventTarget | null) {
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
-  )
+function getNotesEndBeat(notesByTrack: Project['notesByTrack']) {
+  return Object.values(notesByTrack)
+    .reduce((endBeat, notes) => Math.max(endBeat, getTrackEndBeat(notes)), 0)
+}
+
+function nearlyEqual(left: number, right: number) {
+  return Math.abs(left - right) < FLOAT_EPSILON
+}
+
+function getVisibleBars(endBeat: number) {
+  const neededBars = Math.max(DEFAULT_BARS, Math.ceil(endBeat / BEATS_PER_BAR))
+  let visibleBars = DEFAULT_BARS
+
+  while (visibleBars < neededBars) {
+    visibleBars *= 2
+  }
+
+  return visibleBars
 }
 
 function getInstrumentCategory(instrumentId: InstrumentId) {
@@ -232,6 +314,16 @@ function getInstrumentCategory(instrumentId: InstrumentId) {
 
 function getCategoryLabel(category: string) {
   return INSTRUMENT_CATEGORY_LABELS[category] ?? category
+}
+
+function getNextZoom(currentZoom: RollZoom, direction: -1 | 1) {
+  const currentIndex = ROLL_ZOOM_LEVELS.indexOf(currentZoom)
+  const nextIndex = Math.min(
+    ROLL_ZOOM_LEVELS.length - 1,
+    Math.max(0, currentIndex + direction),
+  )
+
+  return ROLL_ZOOM_LEVELS[nextIndex]
 }
 
 function App() {
@@ -249,13 +341,17 @@ function App() {
   const [instrumentCategory, setInstrumentCategory] = useState('Piano')
   const [pendingInstrumentId, setPendingInstrumentId] = useState<InstrumentId | null>(null)
   const [trackContextMenu, setTrackContextMenu] = useState<TrackContextMenu>(null)
+  const [noteDivision, setNoteDivision] = useState<NoteDivision>(8)
+  const [rollZoom, setRollZoom] = useState<RollZoom>(1)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pianoRollRef = useRef<HTMLDivElement>(null)
   const projectRef = useRef(project)
+  const savedProjectJsonRef = useRef('')
   const activeInstrumentsRef = useRef<PlaybackInstrument[]>([])
   const activePlaybackTracksRef = useRef<ActivePlaybackTrack[]>([])
   const activeTimeoutsRef = useRef<number[]>([])
   const activeIntervalsRef = useRef<number[]>([])
+  const playbackSessionRef = useRef(0)
   const playbackStartMsRef = useRef(0)
   const playbackStartBeatRef = useRef(0)
   const playbackBeatRef = useRef(0)
@@ -268,12 +364,17 @@ function App() {
   const rightEraseRef = useRef({ active: false, lastKey: '' })
   const erasedNoteIdsRef = useRef(new Set<string>())
   const keyPreviewRef = useRef({ active: false })
+  const rollPointerGeometryRef = useRef<RollPointerGeometry | null>(null)
+  const pendingPointerMoveRef = useRef<PendingPointerMove | null>(null)
+  const pointerMoveFrameRef = useRef(0)
+  const otherNotesByPitchCacheRef = useRef<OtherNotesByPitchCache | null>(null)
   const interactionHandlersRef = useRef<InteractionHandlers>({
     eraseDraggedCellFromPointer: () => {},
     eraseRightDraggedCellFromPointer: () => {},
     moveDraggedNoteFromPointer: () => {},
     stopHeldPreview: () => {},
     togglePlayback: () => {},
+    zoomRoll: () => {},
   })
 
   const selectedTrack = useMemo(
@@ -289,23 +390,22 @@ function App() {
     [project.selectedNoteId, selectedTrackNotes],
   )
   const projectEndBeat = useMemo(() => getNotesEndBeat(project.notesByTrack), [project.notesByTrack])
-  const visibleBars = Math.max(DEFAULT_BARS, Math.ceil(projectEndBeat / BEATS_PER_BAR))
+  const visibleBars = getVisibleBars(projectEndBeat)
   const totalBeats = visibleBars * BEATS_PER_BAR
-  const totalSteps = totalBeats * STEPS_PER_BEAT
+  const stepsPerBeat = noteDivision / 4
+  const defaultDurationBeats = 4 / noteDivision
+  const totalSteps = totalBeats * stepsPerBeat
+  const stepWidth = DEFAULT_STEP_WIDTH * rollZoom
   const rollTimelineStyle = { gridTemplateColumns: `repeat(${visibleBars}, minmax(64px, 1fr))` }
   const rollShellStyle = {
+    '--bar-width': `${stepWidth * stepsPerBeat * BEATS_PER_BAR}px`,
+    '--beat-width': `${stepWidth * stepsPerBeat}px`,
+    '--roll-grid-height': `${PITCHES.length * ROLL_ROW_HEIGHT}px`,
+    '--roll-grid-width': `${totalSteps * stepWidth}px`,
+    '--step-width': `${stepWidth}px`,
     '--total-steps': totalSteps,
-    gridTemplateColumns: `64px minmax(${totalSteps * 16}px, 1fr)`,
+    gridTemplateColumns: `64px minmax(${totalSteps * stepWidth}px, 1fr)`,
   } as CSSProperties
-  const otherTrackNotes = useMemo(
-    () =>
-      project.tracks
-        .filter((track) => track.id !== selectedTrack?.id)
-        .flatMap((track) =>
-          (project.notesByTrack[track.id] ?? []).map((note) => ({ ...note, trackId: track.id })),
-        ),
-    [project.notesByTrack, project.tracks, selectedTrack?.id],
-  )
   const selectedNotesByPitch = useMemo(() => {
     const notesByPitch = new Map<number, Note[]>()
     selectedTrackNotes.forEach((note) => {
@@ -316,14 +416,41 @@ function App() {
     return notesByPitch
   }, [selectedTrackNotes])
   const otherNotesByPitch = useMemo(() => {
-    const notesByPitch = new Map<number, Array<Note & { trackId: string }>>()
-    otherTrackNotes.forEach((note) => {
-      const pitchNotes = notesByPitch.get(note.pitch) ?? []
-      pitchNotes.push(note)
-      notesByPitch.set(note.pitch, pitchNotes)
+    const trackIds: string[] = []
+    const noteArrays: Note[][] = []
+    project.tracks.forEach((track) => {
+      if (track.id === selectedTrack?.id) return
+      trackIds.push(track.id)
+      noteArrays.push(project.notesByTrack[track.id] ?? [])
     })
+
+    const cached = otherNotesByPitchCacheRef.current
+    const cacheMatches =
+      cached?.selectedTrackId === selectedTrack?.id &&
+      cached.trackIds.length === trackIds.length &&
+      cached.trackIds.every((trackId, index) => (
+        trackId === trackIds[index] && cached.noteArrays[index] === noteArrays[index]
+      ))
+
+    if (cacheMatches) return cached.value
+
+    const notesByPitch = new Map<number, OtherNote[]>()
+    trackIds.forEach((trackId, trackIndex) => {
+      noteArrays[trackIndex].forEach((note) => {
+        const pitchNotes = notesByPitch.get(note.pitch) ?? []
+        pitchNotes.push({ ...note, trackId })
+        notesByPitch.set(note.pitch, pitchNotes)
+      })
+    })
+
+    otherNotesByPitchCacheRef.current = {
+      noteArrays,
+      selectedTrackId: selectedTrack?.id,
+      trackIds,
+      value: notesByPitch,
+    }
     return notesByPitch
-  }, [otherTrackNotes])
+  }, [project.notesByTrack, project.tracks, selectedTrack?.id])
   const instrumentDialogTrack =
     project.tracks.find((track) => track.id === instrumentMenuTrackId) ?? null
   const selectedInstrumentId =
@@ -342,12 +469,22 @@ function App() {
 
   useEffect(() => {
     projectRef.current = project
+    const isEditing =
+      Boolean(resizingNoteId) ||
+      Boolean(noteDragRef.current?.active) ||
+      eraseRef.current.active ||
+      rightEraseRef.current.active
+    const saveDelay = isEditing ? ACTIVE_EDIT_AUTO_SAVE_DELAY_MS : AUTO_SAVE_DELAY_MS
     const saveTimeout = window.setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(projectRef.current))
-    }, AUTO_SAVE_DELAY_MS)
+      const nextProjectJson = JSON.stringify(projectRef.current)
+      if (nextProjectJson !== savedProjectJsonRef.current) {
+        localStorage.setItem(STORAGE_KEY, nextProjectJson)
+        savedProjectJsonRef.current = nextProjectJson
+      }
+    }, saveDelay)
 
     return () => window.clearTimeout(saveTimeout)
-  }, [project])
+  }, [project, resizingNoteId])
 
   useEffect(() => {
     playbackBeatRef.current = playbackBeat
@@ -368,31 +505,76 @@ function App() {
   interactionHandlersRef.current.eraseDraggedCellFromPointer = eraseDraggedCellFromPointer
   interactionHandlersRef.current.eraseRightDraggedCellFromPointer = eraseRightDraggedCellFromPointer
   interactionHandlersRef.current.stopHeldPreview = stopHeldPreview
+  interactionHandlersRef.current.zoomRoll = zoomRoll
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.code !== 'Space' || isTextEditingTarget(event.target)) return
+      if (event.ctrlKey || event.metaKey) {
+        if (event.code === 'Equal' || event.code === 'NumpadAdd') {
+          event.preventDefault()
+          interactionHandlersRef.current.zoomRoll(1)
+          return
+        }
+
+        if (event.code === 'Minus' || event.code === 'NumpadSubtract') {
+          event.preventDefault()
+          interactionHandlersRef.current.zoomRoll(-1)
+          return
+        }
+      }
+
+      if (event.code !== 'Space') return
       event.preventDefault()
       interactionHandlersRef.current.togglePlayback()
     }
 
-    function handlePointerMove(event: PointerEvent) {
-      interactionHandlersRef.current.moveDraggedNoteFromPointer(event.clientX, event.clientY)
-      interactionHandlersRef.current.eraseDraggedCellFromPointer(event.clientX, event.clientY)
-      if (rightEraseRef.current.active && (event.buttons & 2) !== 2) {
+    function flushPointerMove() {
+      pointerMoveFrameRef.current = 0
+      const pendingMove = pendingPointerMoveRef.current
+      pendingPointerMoveRef.current = null
+      if (!pendingMove) return
+
+      interactionHandlersRef.current.moveDraggedNoteFromPointer(pendingMove.clientX, pendingMove.clientY)
+      interactionHandlersRef.current.eraseDraggedCellFromPointer(pendingMove.clientX, pendingMove.clientY)
+      if (rightEraseRef.current.active && (pendingMove.buttons & 2) !== 2) {
         rightEraseRef.current = { active: false, lastKey: '' }
         erasedNoteIdsRef.current = new Set()
         return
       }
-      interactionHandlersRef.current.eraseRightDraggedCellFromPointer(event.clientX, event.clientY)
+      interactionHandlersRef.current.eraseRightDraggedCellFromPointer(pendingMove.clientX, pendingMove.clientY)
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      const hasActivePointerTask =
+        Boolean(noteDragRef.current?.active) ||
+        eraseRef.current.active ||
+        rightEraseRef.current.active
+
+      if (!hasActivePointerTask) return
+
+      pendingPointerMoveRef.current = {
+        buttons: event.buttons,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }
+
+      if (pointerMoveFrameRef.current === 0) {
+        pointerMoveFrameRef.current = window.requestAnimationFrame(flushPointerMove)
+      }
     }
 
     function clearPointerState() {
+      if (pointerMoveFrameRef.current !== 0) {
+        window.cancelAnimationFrame(pointerMoveFrameRef.current)
+        flushPointerMove()
+      }
+      pendingPointerMoveRef.current = null
       noteDragRef.current = null
       eraseRef.current = { active: false, lastKey: '' }
       rightEraseRef.current = { active: false, lastKey: '' }
       erasedNoteIdsRef.current = new Set()
       keyPreviewRef.current.active = false
+      rollPointerGeometryRef.current = null
       setDraggingNoteId(null)
       interactionHandlersRef.current.stopHeldPreview()
     }
@@ -410,6 +592,9 @@ function App() {
       window.removeEventListener('pointercancel', clearPointerState)
       window.removeEventListener('contextmenu', clearPointerState)
       window.removeEventListener('blur', clearPointerState)
+      if (pointerMoveFrameRef.current !== 0) {
+        window.cancelAnimationFrame(pointerMoveFrameRef.current)
+      }
     }
   }, [])
 
@@ -431,7 +616,10 @@ function App() {
       )
       const roll = pianoRollRef.current
       if (roll && totalBeatsRef.current > 0) {
-        const gridWidth = Math.max(totalStepsRef.current * 16, roll.scrollWidth - KEY_COLUMN_WIDTH)
+        const gridWidth = Math.max(
+          totalStepsRef.current * DEFAULT_STEP_WIDTH * rollZoom,
+          roll.scrollWidth - KEY_COLUMN_WIDTH,
+        )
         const playheadX = KEY_COLUMN_WIDTH + (currentBeat / totalBeatsRef.current) * gridWidth
         const viewportLeft = roll.scrollLeft
         const viewportRight = viewportLeft + roll.clientWidth
@@ -450,21 +638,23 @@ function App() {
 
     frameId = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frameId)
-  }, [isPlaying])
+  }, [isPlaying, rollZoom])
 
   function updateProjectTitle(title: string) {
     setProject((current) => (current.title === title ? current : { ...current, title }))
   }
 
   function updateTempo(tempo: number) {
-    const nextTempo = Math.min(240, Math.max(20, Math.round(tempo)))
+    if (!Number.isFinite(tempo) || tempo <= 0) return
+
+    const nextTempo = tempo
     setProject((current) => (current.tempo === nextTempo ? current : { ...current, tempo: nextTempo }))
     setTempoInput(String(nextTempo))
   }
 
   function commitTempoInput() {
     const parsedTempo = Number(tempoInput)
-    if (Number.isFinite(parsedTempo)) {
+    if (Number.isFinite(parsedTempo) && parsedTempo > 0) {
       updateTempo(parsedTempo)
       return
     }
@@ -475,7 +665,7 @@ function App() {
   function changeTempoInput(value: string) {
     setTempoInput(value)
     const parsedTempo = Number(value)
-    if (!Number.isFinite(parsedTempo) || value.trim() === '') return
+    if (!Number.isFinite(parsedTempo) || parsedTempo <= 0 || value.trim() === '') return
     updateTempo(parsedTempo)
   }
 
@@ -615,6 +805,11 @@ function App() {
     selectInstrument(instrumentDialogTrack.id, pendingInstrumentId)
   }
 
+  function previewInstrumentChoice(instrumentId: InstrumentId) {
+    setPendingInstrumentId(instrumentId)
+    void previewNote(instrumentId, getInstrumentPreviewPitch(instrumentId), 0.78, 0.38)
+  }
+
   function stopHeldPreview() {
     previewTokenRef.current += 1
     stopPreviewNote(heldPreviewRef.current)
@@ -676,18 +871,35 @@ function App() {
     changeHeldPreviewPitch(pitch)
   }
 
+  function cacheRollPointerGeometry() {
+    const roll = pianoRollRef.current
+    if (!roll) {
+      rollPointerGeometryRef.current = null
+      return
+    }
+
+    rollPointerGeometryRef.current = {
+      gridWidth: Math.max(totalSteps * stepWidth, roll.clientWidth - KEY_COLUMN_WIDTH),
+      rect: roll.getBoundingClientRect(),
+      totalSteps,
+    }
+  }
+
   function getCellFromPointer(clientX: number, clientY: number) {
     const roll = pianoRollRef.current
     if (!roll) return null
 
-    const rect = roll.getBoundingClientRect()
-    const gridWidth = Math.max(totalSteps * 16, roll.clientWidth - KEY_COLUMN_WIDTH)
+    const geometry = rollPointerGeometryRef.current
+    const rect = geometry?.rect ?? roll.getBoundingClientRect()
+    const pointerTotalSteps = geometry?.totalSteps ?? totalSteps
+    const gridWidth =
+      geometry?.gridWidth ?? Math.max(pointerTotalSteps * stepWidth, roll.clientWidth - KEY_COLUMN_WIDTH)
     const x = clientX - rect.left - KEY_COLUMN_WIDTH + roll.scrollLeft
     const y = clientY - rect.top - ROLL_HEADER_HEIGHT + roll.scrollTop
-    const step = Math.floor((x / gridWidth) * totalSteps)
+    const step = Math.floor((x / gridWidth) * pointerTotalSteps)
     const rowIndex = Math.floor(y / ROLL_ROW_HEIGHT)
 
-    if (step < 0 || step >= totalSteps || rowIndex < 0 || rowIndex >= PITCHES.length) return null
+    if (step < 0 || step >= pointerTotalSteps || rowIndex < 0 || rowIndex >= PITCHES.length) return null
     return { pitch: PITCHES[rowIndex], step }
   }
 
@@ -698,7 +910,7 @@ function App() {
   }
 
   function findNoteAtCell(trackId: string, pitch: number, step: number) {
-    const beat = step / STEPS_PER_BEAT
+    const beat = step / stepsPerBeat
     return (project.notesByTrack[trackId] ?? []).find(
       (note) =>
         note.pitch === pitch &&
@@ -708,24 +920,36 @@ function App() {
   }
 
   function moveNoteToCell(noteId: string, trackId: string, pitch: number, step: number) {
-    const beat = step / STEPS_PER_BEAT
+    const beat = step / stepsPerBeat
 
-    setProject((current) => ({
-      ...current,
-      selectedNoteId: noteId,
-      notesByTrack: {
-        ...current.notesByTrack,
-        [trackId]: (current.notesByTrack[trackId] ?? []).map((note) =>
-          note.id === noteId
-            ? {
-                ...note,
-                pitch,
-                startBeat: Math.max(0, Math.min(totalBeats - note.durationBeats, beat)),
-              }
-            : note,
-        ),
-      },
-    }))
+    setProject((current) => {
+      const currentNotes = current.notesByTrack[trackId] ?? []
+      let changed = current.selectedNoteId !== noteId
+      const nextNotes = currentNotes.map((note) => {
+        if (note.id !== noteId) return note
+
+        const startBeat = Math.max(0, Math.min(totalBeats - note.durationBeats, beat))
+        if (note.pitch === pitch && nearlyEqual(note.startBeat, startBeat)) return note
+
+        changed = true
+        return {
+          ...note,
+          pitch,
+          startBeat,
+        }
+      })
+
+      if (!changed) return current
+
+      return {
+        ...current,
+        selectedNoteId: noteId,
+        notesByTrack: {
+          ...current.notesByTrack,
+          [trackId]: nextNotes,
+        },
+      }
+    })
   }
 
   function moveDraggedNoteToCell(pitch: number, step: number) {
@@ -748,7 +972,7 @@ function App() {
   }
 
   function eraseNoteAtCell(pitch: number, step: number) {
-    const beat = step / STEPS_PER_BEAT
+    const beat = step / stepsPerBeat
     const currentProject = projectRef.current
     const trackId = currentProject.selectedTrackId
     const noteToDelete = (currentProject.notesByTrack[trackId] ?? []).find(
@@ -801,6 +1025,7 @@ function App() {
   function beginRightErase(pitch: number, step: number, event: ReactPointerEvent<HTMLElement>) {
     event.preventDefault()
     event.stopPropagation()
+    cacheRollPointerGeometry()
     rightEraseRef.current = { active: true, lastKey: '' }
     erasedNoteIdsRef.current = new Set()
     eraseNoteAtCellOnce(pitch, step, rightEraseRef.current)
@@ -812,20 +1037,24 @@ function App() {
     event.preventDefault()
     event.stopPropagation()
     if (toolMode === 'erase') {
+      cacheRollPointerGeometry()
       eraseRef.current = { active: true, lastKey: '' }
       erasedNoteIdsRef.current = new Set([note.id])
       deleteNote(note.id)
       return
     }
 
-    setProject((current) => ({ ...current, selectedNoteId: note.id }))
+    setProject((current) =>
+      current.selectedNoteId === note.id ? current : { ...current, selectedNoteId: note.id },
+    )
     setDraggingNoteId(note.id)
+    cacheRollPointerGeometry()
     noteDragRef.current = {
       active: true,
       noteId: note.id,
       trackId: selectedTrack.id,
       lastPitch: note.pitch,
-      lastStep: Math.round(note.startBeat * STEPS_PER_BEAT),
+      lastStep: Math.round(note.startBeat * stepsPerBeat),
     }
     startHeldPreview(note.pitch, note.velocity)
   }
@@ -852,6 +1081,7 @@ function App() {
 
     event.preventDefault()
     if (toolMode === 'erase') {
+      cacheRollPointerGeometry()
       eraseRef.current = { active: true, lastKey: '' }
       erasedNoteIdsRef.current = new Set()
       eraseNoteAtCellOnce(pitch, step, eraseRef.current)
@@ -861,6 +1091,7 @@ function App() {
     const existingNote = findNoteAtCell(selectedTrack.id, pitch, step)
     if (existingNote) {
       setDraggingNoteId(existingNote.id)
+      cacheRollPointerGeometry()
       noteDragRef.current = {
         active: true,
         noteId: existingNote.id,
@@ -868,7 +1099,11 @@ function App() {
         lastPitch: pitch,
         lastStep: step,
       }
-      setProject((current) => ({ ...current, selectedNoteId: existingNote.id }))
+      setProject((current) =>
+        current.selectedNoteId === existingNote.id
+          ? current
+          : { ...current, selectedNoteId: existingNote.id },
+      )
       startHeldPreview(pitch, existingNote.velocity)
       return
     }
@@ -876,11 +1111,12 @@ function App() {
     const note: Note = {
       id: createId('note'),
       pitch,
-      startBeat: step / STEPS_PER_BEAT,
-      durationBeats: DEFAULT_DURATION_BEATS,
+      startBeat: step / stepsPerBeat,
+      durationBeats: defaultDurationBeats,
       velocity: 0.78,
     }
 
+    cacheRollPointerGeometry()
     noteDragRef.current = {
       active: true,
       noteId: note.id,
@@ -908,6 +1144,7 @@ function App() {
   function beginRowContextErase(pitch: number, event: ReactMouseEvent<HTMLDivElement>) {
     event.preventDefault()
     const step = getStepFromRowPointer(event.currentTarget, event.clientX)
+    cacheRollPointerGeometry()
     rightEraseRef.current = { active: true, lastKey: '' }
     erasedNoteIdsRef.current = new Set()
     eraseNoteAtCellOnce(pitch, step, rightEraseRef.current)
@@ -936,24 +1173,36 @@ function App() {
   function resizeNote(noteId: string, durationBeats: number) {
     if (!selectedTrack) return
 
-    setProject((current) => ({
-      ...current,
-      selectedNoteId: noteId,
-      notesByTrack: {
-        ...current.notesByTrack,
-        [selectedTrack.id]: (current.notesByTrack[selectedTrack.id] ?? []).map((note) =>
-          note.id === noteId
-            ? {
-                ...note,
-                durationBeats: Math.max(
-                  MIN_DURATION_BEATS,
-                  Math.min(totalBeats - note.startBeat, durationBeats),
-                ),
-              }
-            : note,
-        ),
-      },
-    }))
+    setProject((current) => {
+      const currentNotes = current.notesByTrack[selectedTrack.id] ?? []
+      let changed = current.selectedNoteId !== noteId
+      const nextNotes = currentNotes.map((note) => {
+        if (note.id !== noteId) return note
+
+        const nextDurationBeats = Math.max(
+          MIN_DURATION_BEATS,
+          Math.min(totalBeats - note.startBeat, durationBeats),
+        )
+        if (nearlyEqual(note.durationBeats, nextDurationBeats)) return note
+
+        changed = true
+        return {
+          ...note,
+          durationBeats: nextDurationBeats,
+        }
+      })
+
+      if (!changed) return current
+
+      return {
+        ...current,
+        selectedNoteId: noteId,
+        notesByTrack: {
+          ...current.notesByTrack,
+          [selectedTrack.id]: nextNotes,
+        },
+      }
+    })
   }
 
   function startResizingNote(note: Note, event: ReactPointerEvent<HTMLSpanElement>) {
@@ -963,18 +1212,34 @@ function App() {
     event.preventDefault()
     event.stopPropagation()
     setResizingNoteId(note.id)
-    setProject((current) => ({ ...current, selectedNoteId: note.id }))
+    setProject((current) =>
+      current.selectedNoteId === note.id ? current : { ...current, selectedNoteId: note.id },
+    )
 
     const rowRect = row.getBoundingClientRect()
+    let pendingClientX = event.clientX
+    let resizeFrameId = 0
 
-    function handlePointerMove(moveEvent: PointerEvent) {
-      const x = Math.min(Math.max(moveEvent.clientX - rowRect.left, 0), rowRect.width)
+    function applyPendingResize() {
+      resizeFrameId = 0
+      const x = Math.min(Math.max(pendingClientX - rowRect.left, 0), rowRect.width)
       const step = Math.ceil((x / rowRect.width) * totalSteps)
-      const endBeat = step / STEPS_PER_BEAT
+      const endBeat = step / stepsPerBeat
       resizeNote(note.id, endBeat - note.startBeat)
     }
 
+    function handlePointerMove(moveEvent: PointerEvent) {
+      pendingClientX = moveEvent.clientX
+      if (resizeFrameId === 0) {
+        resizeFrameId = window.requestAnimationFrame(applyPendingResize)
+      }
+    }
+
     function stopResizing() {
+      if (resizeFrameId !== 0) {
+        window.cancelAnimationFrame(resizeFrameId)
+        applyPendingResize()
+      }
       setResizingNoteId(null)
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', stopResizing)
@@ -1068,7 +1333,7 @@ function App() {
     const roll = pianoRollRef.current
     if (!roll || totalBeats <= 0) return
 
-    const gridWidth = Math.max(totalSteps * 16, roll.scrollWidth - KEY_COLUMN_WIDTH)
+    const gridWidth = Math.max(totalSteps * stepWidth, roll.scrollWidth - KEY_COLUMN_WIDTH)
     const playheadX = KEY_COLUMN_WIDTH + (beat / totalBeats) * gridWidth
     const viewportLeft = roll.scrollLeft
     const viewportRight = viewportLeft + roll.clientWidth
@@ -1105,7 +1370,19 @@ function App() {
     seekPlayback((x / rect.width) * totalBeats)
   }
 
+  function zoomRoll(direction: -1 | 1) {
+    setRollZoom((current) => getNextZoom(current, direction))
+  }
+
+  function handleRollWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey) return
+
+    event.preventDefault()
+    zoomRoll(event.deltaY > 0 ? -1 : 1)
+  }
+
   function disposePlaybackVoices() {
+    playbackSessionRef.current += 1
     activeTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     activeTimeoutsRef.current = []
     activeIntervalsRef.current.forEach((intervalId) => window.clearInterval(intervalId))
@@ -1170,7 +1447,9 @@ function App() {
 
   async function startPlaybackAt(startBeat: number) {
     disposePlaybackVoices()
+    const sessionId = playbackSessionRef.current
     await ensureAudioReady()
+    if (sessionId !== playbackSessionRef.current) return
 
     const safeStartBeat = Math.max(0, Math.min(totalBeats, startBeat))
     const currentProject = projectRef.current
@@ -1196,6 +1475,13 @@ function App() {
         nextIndex: notes.findIndex((note) => note.startBeat + note.durationBeats > safeStartBeat),
       })
     })
+
+    await Promise.all(
+      activePlaybackTracksRef.current.map((track) =>
+        waitForInstrumentReady(track.instrument),
+      ),
+    )
+    if (sessionId !== playbackSessionRef.current) return
 
     activePlaybackTracksRef.current.forEach((track) => {
       if (track.nextIndex < 0) track.nextIndex = track.notes.length
@@ -1321,7 +1607,11 @@ function App() {
                       key={category}
                       onPointerDown={() => setInstrumentCategory(category)}
                     >
-                      <span>{INSTRUMENT_CATEGORY_ICONS[category] ?? '•'}</span>
+                      <img
+                        alt=""
+                        draggable={false}
+                        src={getInstrumentImage(INSTRUMENT_CATEGORY_IMAGES[category] ?? 'gm-0')}
+                      />
                       {getCategoryLabel(category)}
                     </button>
                   ))}
@@ -1336,9 +1626,14 @@ function App() {
                       type="button"
                       className={selectedInstrumentId === instrument.id ? 'is-active' : ''}
                       key={instrument.id}
-                      onPointerDown={() => setPendingInstrumentId(instrument.id)}
+                      onPointerDown={() => previewInstrumentChoice(instrument.id)}
                     >
-                      {instrument.label}
+                      <img
+                        alt=""
+                        draggable={false}
+                        src={getInstrumentImage(instrument.id)}
+                      />
+                      <span>{instrument.label}</span>
                     </button>
                   ))}
                 </div>
@@ -1353,12 +1648,12 @@ function App() {
                   onChange={(event) => {
                     if (event.target.checked) {
                       setInstrumentCategory('Drums')
-                      setPendingInstrumentId('drums')
+                      previewInstrumentChoice('drums')
                       return
                     }
 
                     setInstrumentCategory('Piano')
-                    setPendingInstrumentId('gm-0')
+                    previewInstrumentChoice('gm-0')
                   }}
                 />
                 Rhythm Track
@@ -1540,11 +1835,54 @@ function App() {
                 ⌫
               </button>
               <button type="button" className="future-button" title="추후 음표 도구">♪</button>
+              <div className="division-buttons" aria-label="음표 단위">
+                {NOTE_DIVISIONS.map((division) => (
+                  <button
+                    type="button"
+                    className={noteDivision === division ? 'is-active' : ''}
+                    key={division}
+                    onPointerDown={() => setNoteDivision(division)}
+                    title={`${division}분음표`}
+                  >
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                      src={`/note-icons/note-${division}.svg`}
+                    />
+                    <small>{division}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="roll-zoom-controls" aria-label="피아노 롤 확대 축소">
+                <button
+                  type="button"
+                  disabled={rollZoom === ROLL_ZOOM_LEVELS[0]}
+                  onPointerDown={() => zoomRoll(-1)}
+                  title="피아노 롤 축소"
+                >
+                  −
+                </button>
+                <span>{Math.round(rollZoom * 100)}%</span>
+                <button
+                  type="button"
+                  disabled={rollZoom === ROLL_ZOOM_LEVELS[ROLL_ZOOM_LEVELS.length - 1]}
+                  onPointerDown={() => zoomRoll(1)}
+                  title="피아노 롤 확대"
+                >
+                  ＋
+                </button>
+              </div>
               <span>{visibleBars}</span>
             </div>
           </div>
 
-          <div className="piano-roll" ref={pianoRollRef} style={rollShellStyle}>
+          <div
+            className="piano-roll"
+            ref={pianoRollRef}
+            style={rollShellStyle}
+            onWheel={handleRollWheel}
+          >
             <div className="corner-cell"> </div>
             <div
               className="measure-row"
@@ -1558,6 +1896,10 @@ function App() {
                   {bar + 1}
                 </div>
               ))}
+            </div>
+            <div className="roll-grid-guides" aria-hidden="true" />
+            <div className="roll-playhead-layer" aria-hidden="true">
+              <span className="roll-playhead" />
             </div>
 
             {PITCHES.map((pitch) => (
@@ -1579,8 +1921,6 @@ function App() {
                   onPointerDown={(event) => beginRowAction(pitch, event)}
                   onContextMenu={(event) => beginRowContextErase(pitch, event)}
                 >
-                  <span className="playhead" aria-hidden="true" />
-
                   {(otherNotesByPitch.get(pitch) ?? []).map((note) => (
                       <span
                         className="note-block is-ghost"
@@ -1639,15 +1979,28 @@ function App() {
 
         <section className="detail-panel" aria-label="세부 편집">
           <div className="detail-tabs" aria-label="편집 탭">
-            <button className="is-active" type="button">Velocity</button>
-            <button className="future-button" type="button">Pitch Bend</button>
-            <button className="future-button" type="button">Volume</button>
-            <button className="future-button" type="button">Panpot</button>
-            <button className="future-button" type="button">Expression</button>
-            <button className="future-button" type="button">Modulation</button>
+            {TERMINOLOGY_HELP.map((item, index) => (
+              <button
+                className={index === 0 ? 'is-active' : 'future-button'}
+                key={item.term}
+                title={`${item.label}: ${item.description}`}
+                type="button"
+              >
+                <span>{item.term}</span>
+                <small>{item.label}</small>
+              </button>
+            ))}
           </div>
 
           <div className="velocity-lane">
+            <div className="terminology-strip" aria-label="용어 설명">
+              {TERMINOLOGY_HELP.map((item) => (
+                <article key={item.term}>
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                </article>
+              ))}
+            </div>
             <div className="tempo-panel" aria-label="템포 설정">
               <span>BPM</span>
               <button type="button" onPointerDown={() => updateTempo(project.tempo - 5)}>−</button>
@@ -1688,7 +2041,13 @@ function App() {
                   left: `${(note.startBeat / totalBeats) * 100}%`,
                   height: `${Math.max(8, note.velocity * 100)}%`,
                 }}
-                onPointerDown={() => setProject((current) => ({ ...current, selectedNoteId: note.id }))}
+                onPointerDown={() =>
+                  setProject((current) =>
+                    current.selectedNoteId === note.id
+                      ? current
+                      : { ...current, selectedNoteId: note.id },
+                  )
+                }
                 aria-label={`${getPitchName(note.pitch)} 소리 세기`}
               />
             ))}
