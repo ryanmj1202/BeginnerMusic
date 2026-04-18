@@ -40,6 +40,7 @@ export interface Project {
   timeSignature: [number, number]
   selectedTrackId: string
   selectedNoteId: string | null
+  lengthBeats?: number
   theme: 'light' | 'dark'
   tracks: Track[]
   notesByTrack: Record<string, Note[]>
