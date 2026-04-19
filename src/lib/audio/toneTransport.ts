@@ -23,7 +23,8 @@ export type HeldPreview = {
 
 const RELEASE_BUFFER_SECONDS = 2
 const MIN_PREVIEW_MS = 250
-const SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/'
+const FLUID_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/'
+const ORCHESTRAL_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/'
 const SOUNDFONT_SAMPLE_URLS = {
   C2: 'C2.mp3',
   C3: 'C3.mp3',
@@ -133,14 +134,22 @@ function trimSoundFontCache() {
   }
 }
 
-function getSoundFontCacheEntry(soundFontName: string) {
-  const cached = soundFontCache.get(soundFontName)
+function getSoundFontBaseUrl(instrumentId: InstrumentId) {
+  const program = getProgramFromInstrumentId(instrumentId)
+  if (program === null) return FLUID_SOUNDFONT_BASE_URL
+  if (program >= 40 && program < 80) return ORCHESTRAL_SOUNDFONT_BASE_URL
+  return FLUID_SOUNDFONT_BASE_URL
+}
+
+function getSoundFontCacheEntry(soundFontName: string, baseUrl: string) {
+  const cacheKey = `${baseUrl}${soundFontName}`
+  const cached = soundFontCache.get(cacheKey)
   if (cached) {
     cached.lastUsed = performance.now()
     return cached
   }
 
-  if (failedSoundFonts.has(soundFontName)) return null
+  if (failedSoundFonts.has(cacheKey)) return null
 
   let resolveReady = () => {}
   const ready = new Promise<void>((resolve) => {
@@ -156,19 +165,19 @@ function getSoundFontCacheEntry(soundFontName: string) {
   }
   const sampler = new Tone.Sampler({
     urls: SOUNDFONT_SAMPLE_URLS,
-    baseUrl: `${SOUNDFONT_BASE_URL}${soundFontName}-mp3/`,
+    baseUrl: `${baseUrl}${soundFontName}-mp3/`,
     onload: () => {
       entry.isReady = true
       resolveReady()
     },
     onerror: () => {
-      failedSoundFonts.add(soundFontName)
+      failedSoundFonts.add(cacheKey)
       entry.failed = true
       resolveReady()
     },
   }).toDestination()
   entry.sampler = sampler
-  soundFontCache.set(soundFontName, entry)
+  soundFontCache.set(cacheKey, entry)
   trimSoundFontCache()
   return entry
 }
@@ -180,26 +189,36 @@ function createSoundFontInstrument(
   const soundFontName = getSoundFontInstrumentName(instrumentId)
   if (!soundFontName) return fallback
 
-  const cacheEntry = getSoundFontCacheEntry(soundFontName)
+  const cacheEntry = getSoundFontCacheEntry(soundFontName, getSoundFontBaseUrl(instrumentId))
   if (!cacheEntry || cacheEntry.failed) return fallback
   const entry = cacheEntry
 
   let disposed = false
-  const activeNotes = new Set<number>()
+  const activeNotes = new Map<number, number>()
   const releaseTimeouts = new Set<number>()
   entry.activeUsers += 1
 
+  function addTrackedNote(note: number) {
+    activeNotes.set(note, (activeNotes.get(note) ?? 0) + 1)
+  }
+
   function releaseTrackedNote(note: number, time?: number) {
+    const nextCount = (activeNotes.get(note) ?? 1) - 1
+    if (nextCount > 0) {
+      activeNotes.set(note, nextCount)
+      return
+    }
+
     activeNotes.delete(note)
     if (!entry.isReady || entry.failed) return
     entry.sampler.triggerRelease(note, time)
   }
 
   function scheduleTrackedRelease(note: number, duration: number, time?: number) {
-    activeNotes.add(note)
+    addTrackedNote(note)
     const waitMs = Math.max(0, ((time ?? Tone.now()) - Tone.now() + duration + 0.08) * 1000)
     const timeoutId = window.setTimeout(() => {
-      activeNotes.delete(note)
+      releaseTrackedNote(note, Tone.now())
       releaseTimeouts.delete(timeoutId)
     }, waitMs)
     releaseTimeouts.add(timeoutId)
@@ -221,14 +240,17 @@ function createSoundFontInstrument(
         return fallback.triggerAttack(note, time, velocity)
       }
 
-      activeNotes.add(note)
+      addTrackedNote(note)
       entry.lastUsed = performance.now()
       return entry.sampler.triggerAttack(note, time, velocity)
     },
     triggerRelease(note, time) {
       fallback.triggerRelease(note, time)
       if (note === undefined) {
-        activeNotes.forEach((activeNote) => releaseTrackedNote(activeNote, time))
+        Array.from(activeNotes.keys()).forEach((activeNote) => {
+          activeNotes.set(activeNote, 1)
+          releaseTrackedNote(activeNote, time)
+        })
         activeNotes.clear()
         return
       }
@@ -239,7 +261,10 @@ function createSoundFontInstrument(
       disposed = true
       releaseTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
       releaseTimeouts.clear()
-      activeNotes.forEach((activeNote) => releaseTrackedNote(activeNote, Tone.now()))
+      Array.from(activeNotes.keys()).forEach((activeNote) => {
+        activeNotes.set(activeNote, 1)
+        releaseTrackedNote(activeNote, Tone.now())
+      })
       activeNotes.clear()
       fallback.dispose()
       entry.activeUsers = Math.max(0, entry.activeUsers - 1)
@@ -253,8 +278,122 @@ export function createInstrument(
   instrumentId: InstrumentId,
   mode: InstrumentMode = 'playback',
 ): BeginnerInstrument {
+  if (instrumentId === 'drums') return createDrumKitInstrument(mode)
+
   const fallback = createSynthInstrument(instrumentId, mode)
   return createSoundFontInstrument(instrumentId, fallback)
+}
+
+function getMidiFromFrequency(note: number) {
+  return Math.round(Tone.Frequency(note).toMidi())
+}
+
+function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
+  const activeVoices = new Set<{ dispose: () => unknown }>()
+  const isPreview = mode === 'preview'
+
+  function disposeLater(voice: { dispose: () => unknown }, waitMs: number) {
+    activeVoices.add(voice)
+    window.setTimeout(() => {
+      voice.dispose()
+      activeVoices.delete(voice)
+    }, waitMs)
+  }
+
+  function playNoise(
+    duration: number,
+    velocity: number,
+    options: {
+      attack: number
+      decay: number
+      release: number
+      sustain: number
+    },
+  ) {
+    const voice = new Tone.NoiseSynth({
+      noise: { type: 'white' },
+      envelope: options,
+    }).toDestination()
+    voice.triggerAttackRelease(duration, Tone.now(), velocity)
+    disposeLater(voice, Math.max(120, duration * 1000 + 160))
+  }
+
+  function playMetal(duration: number, velocity: number, frequency: number) {
+    const voice = new Tone.MetalSynth({
+      envelope: {
+        attack: 0.001,
+        decay: duration,
+        release: 0.02,
+      },
+      harmonicity: 5.1,
+      modulationIndex: 18,
+      resonance: 3600,
+      octaves: 1.2,
+    }).toDestination()
+    voice.frequency.value = frequency
+    voice.triggerAttackRelease(duration, Tone.now(), velocity)
+    disposeLater(voice, Math.max(140, duration * 1000 + 180))
+  }
+
+  function playDrumHit(note: number, velocity = 0.75) {
+    const midi = getMidiFromFrequency(note)
+    const level = isPreview ? Math.min(0.75, velocity) : velocity
+
+    if (midi === 35 || midi === 36) {
+      const voice = new Tone.MembraneSynth({
+        pitchDecay: 0.035,
+        octaves: 7,
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.001, decay: 0.22, sustain: 0.02, release: 0.04 },
+      }).toDestination()
+      voice.triggerAttackRelease('C1', 0.18, Tone.now(), level)
+      disposeLater(voice, 360)
+      return
+    }
+
+    if (midi === 38 || midi === 40 || midi === 37 || midi === 39) {
+      playNoise(0.12, level, { attack: 0.001, decay: 0.12, sustain: 0.02, release: 0.035 })
+      return
+    }
+
+    if (midi === 42 || midi === 44 || midi === 46) {
+      playMetal(midi === 46 ? 0.22 : 0.07, level * 0.82, 420)
+      return
+    }
+
+    if (midi >= 41 && midi <= 50) {
+      const voice = new Tone.MembraneSynth({
+        pitchDecay: 0.022,
+        octaves: 4,
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.001, decay: 0.18, sustain: 0.04, release: 0.04 },
+      }).toDestination()
+      voice.triggerAttackRelease(Tone.Frequency(midi - 24, 'midi').toFrequency(), 0.16, Tone.now(), level)
+      disposeLater(voice, 320)
+      return
+    }
+
+    if (midi >= 49 && midi <= 59) {
+      playMetal(0.32, level * 0.7, 260)
+      return
+    }
+
+    playNoise(0.08, level * 0.7, { attack: 0.001, decay: 0.08, sustain: 0.01, release: 0.025 })
+  }
+
+  return {
+    triggerAttackRelease(note, _duration, _time, velocity) {
+      playDrumHit(note, velocity)
+    },
+    triggerAttack(note, _time, velocity) {
+      playDrumHit(note, velocity)
+    },
+    triggerRelease() {},
+    dispose() {
+      activeVoices.forEach((voice) => voice.dispose())
+      activeVoices.clear()
+    },
+  }
 }
 
 function createSynthInstrument(

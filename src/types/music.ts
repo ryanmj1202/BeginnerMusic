@@ -6,6 +6,11 @@ export interface Note {
   startBeat: number
   durationBeats: number
   velocity: number
+  pitchBend?: number
+  volume?: number
+  pan?: number
+  expression?: number
+  modulation?: number
 }
 
 export interface Track {
@@ -14,6 +19,7 @@ export interface Track {
   instrumentId: InstrumentId
   volume: number
   mute: boolean
+  channel?: number
   color?: string
 }
 

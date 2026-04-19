@@ -93,9 +93,24 @@ function createMetaTrack(project: Project) {
   ])
 }
 
-function getTrackChannel(trackIndex: number, isDrums: boolean) {
+function getTrackChannel(trackIndex: number, isDrums: boolean, channel?: number) {
   if (isDrums) return 9
+  if (channel !== undefined) return Math.max(0, Math.min(15, channel - 1))
   return trackIndex >= 9 ? Math.min(15, trackIndex + 1) : trackIndex
+}
+
+function toMidi7(value: number) {
+  return Math.max(0, Math.min(127, Math.round(value * 127)))
+}
+
+function createControlChange(tick: number, channel: number, controller: number, value: number, order: number) {
+  return { tick, order, data: [0xb0 | channel, controller, toMidi7(value)] }
+}
+
+function createPitchBend(tick: number, channel: number, semitones: number, order: number) {
+  const normalized = Math.max(-1, Math.min(1, semitones / 2))
+  const bend = Math.max(0, Math.min(0x3fff, Math.round(0x2000 + normalized * 0x1fff)))
+  return { tick, order, data: [0xe0 | channel, bend & 0x7f, (bend >> 7) & 0x7f] }
 }
 
 function noteToEvents(note: Note, channel: number): MidiTrackEvent[] {
@@ -103,11 +118,18 @@ function noteToEvents(note: Note, channel: number): MidiTrackEvent[] {
   const velocity = Math.max(1, Math.min(127, Math.round(note.velocity * 127)))
   const startTick = Math.max(0, Math.round(note.startBeat * TICKS_PER_BEAT))
   const endTick = Math.max(startTick + 1, Math.round((note.startBeat + note.durationBeats) * TICKS_PER_BEAT))
+  const events: MidiTrackEvent[] = []
 
-  return [
-    { tick: startTick, order: 20, data: [0x90 | channel, pitch, velocity] },
-    { tick: endTick, order: 10, data: [0x80 | channel, pitch, 0] },
-  ]
+  if (note.volume !== undefined) events.push(createControlChange(startTick, channel, 7, note.volume, 12))
+  if (note.pan !== undefined) events.push(createControlChange(startTick, channel, 10, (note.pan + 1) / 2, 13))
+  if (note.expression !== undefined) events.push(createControlChange(startTick, channel, 11, note.expression, 14))
+  if (note.modulation !== undefined) events.push(createControlChange(startTick, channel, 1, note.modulation, 15))
+  if (note.pitchBend !== undefined) events.push(createPitchBend(startTick, channel, note.pitchBend, 18))
+
+  events.push({ tick: startTick, order: 20, data: [0x90 | channel, pitch, velocity] })
+  events.push({ tick: endTick, order: 10, data: [0x80 | channel, pitch, 0] })
+  if (note.pitchBend !== undefined) events.push(createPitchBend(endTick, channel, 0, 11))
+  return events
 }
 
 export function exportMidiProject(project: Project) {
@@ -115,7 +137,7 @@ export function exportMidiProject(project: Project) {
     createMetaTrack(project),
     ...project.tracks.map((track, trackIndex) => {
       const isDrums = track.instrumentId === 'drums'
-      const channel = getTrackChannel(trackIndex, isDrums)
+      const channel = getTrackChannel(trackIndex, isDrums, track.channel)
       const program = getProgramFromInstrumentId(track.instrumentId) ?? 0
       const trackName = writeText(track.name)
       const notes = project.notesByTrack[track.id] ?? []

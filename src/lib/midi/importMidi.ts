@@ -194,7 +194,7 @@ function parseTrack(
   reader.position = endOffset
 }
 
-export function importMidiProject(buffer: ArrayBuffer): Project {
+export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI'): Project {
   const reader = new MidiReader(new Uint8Array(buffer))
 
   if (reader.readString(4) !== 'MThd') {
@@ -235,6 +235,7 @@ export function importMidiProject(buffer: ArrayBuffer): Project {
       instrumentId: programToInstrument(program, firstEvent?.channel ?? 0),
       volume: 0.85,
       mute: false,
+      channel: firstEvent ? firstEvent.channel + 1 : index + 1,
     }
   })
   const notesByTrack: Record<string, Note[]> = Object.fromEntries(
@@ -265,13 +266,14 @@ export function importMidiProject(buffer: ArrayBuffer): Project {
             instrumentId: 'gm-0',
             volume: 0.85,
             mute: false,
+            channel: 1,
           },
         ]
 
   return {
     version: 1,
     id: `project-midi-${Date.now()}`,
-    title: '불러온 MIDI',
+    title,
     tempo: tempos[0] ?? 120,
     timeSignature: [4, 4],
     selectedTrackId: finalTracks[0].id,

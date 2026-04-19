@@ -12,6 +12,7 @@
 } from 'react'
 import './App.css'
 import * as Tone from 'tone'
+import { exportMp3Project } from './lib/audio/exportMp3'
 import {
   changePreviewNote,
   createInstrument,
@@ -41,21 +42,87 @@ const MIN_DURATION_BEATS = 0.25
 const KEY_COLUMN_WIDTH = 64
 const ROLL_HEADER_HEIGHT = 32
 const ROLL_ROW_HEIGHT = 32
-const DEFAULT_STEP_WIDTH = 20
+const DEFAULT_BEAT_WIDTH = 80
 const AUTO_SAVE_DELAY_MS = 500
 const ACTIVE_EDIT_AUTO_SAVE_DELAY_MS = 1200
 const FLOAT_EPSILON = 0.0001
 const PLAYBACK_SCHEDULER_MS = 80
 const PLAYBACK_LOOKAHEAD_BEATS = 0.32
 const TEMPO_PRESETS = [60, 72, 80, 90, 100, 110, 120, 128, 140, 160, 180, 200]
+const TEMPO_GRAPH_MIN = 40
+const TEMPO_GRAPH_MAX = 220
 const PLAYHEAD_SCROLL_PADDING = 160
 const NOTE_DIVISIONS = [8, 16, 32, 64, 128] as const
-const ROLL_ZOOM_LEVELS = [0.5, 0.75, 1, 1.5, 2, 3] as const
 const DEFAULT_PROJECT_LENGTH_BEATS = DEFAULT_BARS * BEATS_PER_BAR
 const HISTORY_LIMIT = 80
+const KEYBOARD_INPUT_MAP: Record<string, number> = {
+  KeyA: 60,
+  KeyW: 61,
+  KeyS: 62,
+  KeyE: 63,
+  KeyD: 64,
+  KeyF: 65,
+  KeyT: 66,
+  KeyG: 67,
+  KeyY: 68,
+  KeyH: 69,
+  KeyU: 70,
+  KeyJ: 71,
+  KeyK: 72,
+}
 
 const PITCHES = Array.from({ length: 36 }, (_, index) => 84 - index)
+const DRUM_PITCHES = Array.from({ length: 47 }, (_, index) => 81 - index)
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+const DRUM_LABELS: Record<number, string> = {
+  35: 'Kick',
+  36: 'Kick 1',
+  37: 'Side Stick',
+  38: 'Snare',
+  39: 'Clap',
+  40: 'E. Snare',
+  41: 'Low Floor Tom',
+  42: 'Closed Hat',
+  43: 'High Floor Tom',
+  44: 'Pedal Hat',
+  45: 'Low Tom',
+  46: 'Open Hat',
+  47: 'Low-Mid Tom',
+  48: 'Hi-Mid Tom',
+  49: 'Crash 1',
+  50: 'High Tom',
+  51: 'Ride 1',
+  52: 'China',
+  53: 'Ride Bell',
+  54: 'Tambourine',
+  55: 'Splash',
+  56: 'Cowbell',
+  57: 'Crash 2',
+  58: 'Vibraslap',
+  59: 'Ride 2',
+  60: 'Hi Bongo',
+  61: 'Low Bongo',
+  62: 'Mute Conga',
+  63: 'Open Conga',
+  64: 'Low Conga',
+  65: 'Hi Timbale',
+  66: 'Low Timbale',
+  67: 'Hi Agogo',
+  68: 'Low Agogo',
+  69: 'Cabasa',
+  70: 'Maracas',
+  71: 'Short Whistle',
+  72: 'Long Whistle',
+  73: 'Short Guiro',
+  74: 'Long Guiro',
+  75: 'Claves',
+  76: 'Hi Wood Block',
+  77: 'Low Wood Block',
+  78: 'Mute Cuica',
+  79: 'Open Cuica',
+  80: 'Mute Triangle',
+  81: 'Open Triangle',
+}
 const DRUM_INSTRUMENT = { family: 'Drums', icon: '◉', id: 'drums', label: 'Power Drum Kit', program: -1 }
 const INSTRUMENT_OPTIONS = [DRUM_INSTRUMENT, ...GENERAL_MIDI_INSTRUMENTS]
 const INSTRUMENT_CATEGORY_ORDER = [
@@ -134,15 +201,22 @@ const TERMINOLOGY_HELP = [
     label: '떨림',
     description: '비브라토처럼 음에 흔들림을 더하는 값입니다.',
   },
+  {
+    term: 'Event',
+    label: '이벤트',
+    description: '선택한 음표의 시작, 길이, 음높이를 직접 편집합니다.',
+  },
 ]
 
 type PlaybackInstrument = ReturnType<typeof createInstrument>
-type ToolMode = 'draw' | 'erase' | 'select'
+type EditorTab = 'piano-roll' | 'arrange' | 'tempo'
+type ToolMode = 'draw' | 'erase' | 'select' | 'lasso'
 type NoteDivision = (typeof NOTE_DIVISIONS)[number]
-type RollZoom = (typeof ROLL_ZOOM_LEVELS)[number]
 
 type NoteDrag = {
   active: boolean
+  grabPitchOffset: number
+  grabStepOffset: number
   groupNoteIds: string[]
   noteId: string
   originalNotes: Note[]
@@ -169,6 +243,29 @@ type SelectionBox = {
   width: number
 }
 
+type LassoPoint = {
+  gridX: number
+  gridY: number
+  viewX: number
+  viewY: number
+}
+
+type PatternRepeatDrag = {
+  active: boolean
+  baseEndBeat: number
+  baseStartBeat: number
+  baseWidth: number
+  notes: Note[]
+  startClientX: number
+  trackId: string
+}
+
+type KeyboardRecordingNote = {
+  noteId: string
+  pitch: number
+  startBeat: number
+}
+
 type TrackContextMenu = {
   trackId: string
   x: number
@@ -179,6 +276,16 @@ type PianoRollContextMenu = {
   x: number
   y: number
 } | null
+
+type RightClickRollAction = {
+  active: boolean
+  deleted: boolean
+  menuX: number
+  menuY: number
+  moved: boolean
+  startX: number
+  startY: number
+}
 
 type PatternClipboard = {
   notes: Note[]
@@ -199,6 +306,7 @@ type PendingPointerMove = {
 }
 
 type ActivePlaybackTrack = {
+  activeFrequencies: Map<number, number>
   id: string
   instrument: PlaybackInstrument
   notes: Note[]
@@ -221,6 +329,11 @@ type InteractionHandlers = {
   eraseDraggedCellFromPointer: (clientX: number, clientY: number) => void
   eraseRightDraggedCellFromPointer: (clientX: number, clientY: number) => void
   finishPatternSelection: () => void
+  finishPatternRepeat: () => void
+  finishKeyboardNote: (code: string) => void
+  startKeyboardNote: (code: string) => void
+  updatePatternRepeatPreview: (clientX: number) => void
+  updateLassoSelectionFromPointer: (clientX: number, clientY: number) => void
   moveDraggedNoteFromPointer: (clientX: number, clientY: number) => void
   pasteSelectedNotes: () => void
   redoProject: () => void
@@ -228,7 +341,6 @@ type InteractionHandlers = {
   updatePatternSelectionFromPointer: (clientX: number, clientY: number) => void
   stopHeldPreview: () => void
   togglePlayback: () => void
-  zoomRoll: (direction: -1 | 1) => void
 }
 
 function createId(prefix: string) {
@@ -260,6 +372,7 @@ function createInitialProject(): Project {
         instrumentId: 'gm-0',
         volume: 0.85,
         mute: false,
+        channel: 1,
         color: TRACK_COLORS[0],
       },
     ],
@@ -272,9 +385,10 @@ function createInitialProject(): Project {
 function normalizeProject(project: Project): Project {
   const fallbackTrackId = createId('track')
   const tracks = project.tracks?.length
-    ? project.tracks.map((track, index) => ({
+      ? project.tracks.map((track, index) => ({
         ...track,
         mute: track.mute ?? false,
+        channel: track.channel ?? (track.instrumentId === 'drums' ? 10 : Math.min(16, index + 1)),
         color: track.color ?? TRACK_COLORS[index % TRACK_COLORS.length],
       }))
     : [
@@ -284,6 +398,7 @@ function normalizeProject(project: Project): Project {
           instrumentId: 'gm-0',
           volume: 0.85,
           mute: false,
+          channel: 1,
           color: TRACK_COLORS[0],
         },
       ]
@@ -360,28 +475,17 @@ function getCategoryLabel(category: string) {
   return INSTRUMENT_CATEGORY_LABELS[category] ?? category
 }
 
-function getNextZoom(currentZoom: RollZoom, direction: -1 | 1) {
-  const currentIndex = ROLL_ZOOM_LEVELS.indexOf(currentZoom)
-  const nextIndex = Math.min(
-    ROLL_ZOOM_LEVELS.length - 1,
-    Math.max(0, currentIndex + direction),
-  )
-
-  return ROLL_ZOOM_LEVELS[nextIndex]
-}
-
 function App() {
   const [project, setProjectState] = useState<Project>(() => readSavedProject())
   const [tempoInput, setTempoInput] = useState(() => String(project.tempo))
-  const [lengthSecondsInput, setLengthSecondsInput] = useState(() =>
-    String(Math.round(((project.lengthBeats ?? DEFAULT_PROJECT_LENGTH_BEATS) * 60) / project.tempo)),
-  )
   const [resizingNoteId, setResizingNoteId] = useState<string | null>(null)
   const [instrumentMenuTrackId, setInstrumentMenuTrackId] = useState<string | null>(null)
   const [fileMenuOpen, setFileMenuOpen] = useState(false)
   const [editMenuOpen, setEditMenuOpen] = useState(false)
+  const [isExportingMp3, setIsExportingMp3] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackBeat, setPlaybackBeat] = useState(0)
+  const [activeEditorTab, setActiveEditorTab] = useState<EditorTab>('piano-roll')
   const [toolMode, setToolMode] = useState<ToolMode>('draw')
   const [pressedPitch, setPressedPitch] = useState<number | null>(null)
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
@@ -391,9 +495,11 @@ function App() {
   const [trackContextMenu, setTrackContextMenu] = useState<TrackContextMenu>(null)
   const [pianoRollContextMenu, setPianoRollContextMenu] = useState<PianoRollContextMenu>(null)
   const [noteDivision, setNoteDivision] = useState<NoteDivision>(8)
-  const [rollZoom, setRollZoom] = useState<RollZoom>(1)
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([])
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
+  const [lassoPoints, setLassoPoints] = useState<LassoPoint[]>([])
+  const [keyboardInputEnabled, setKeyboardInputEnabled] = useState(false)
+  const [activeDetailTerm, setActiveDetailTerm] = useState(TERMINOLOGY_HELP[0].term)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pianoRollRef = useRef<HTMLDivElement>(null)
   const projectRef = useRef(project)
@@ -409,15 +515,18 @@ function App() {
   const playbackStartBeatRef = useRef(0)
   const playbackBeatRef = useRef(0)
   const totalBeatsRef = useRef(0)
-  const totalStepsRef = useRef(0)
   const heldPreviewRef = useRef<HeldPreview | null>(null)
   const previewTokenRef = useRef(0)
   const lastNoteDurationRef = useRef(MIN_DURATION_BEATS * 2)
   const noteDragRef = useRef<NoteDrag | null>(null)
   const patternClipboardRef = useRef<PatternClipboard | null>(null)
+  const patternRepeatRef = useRef<PatternRepeatDrag | null>(null)
   const patternSelectionRef = useRef<PatternSelection | null>(null)
+  const lassoSelectionRef = useRef<{ active: boolean; points: LassoPoint[] }>({ active: false, points: [] })
+  const keyboardRecordingRef = useRef(new Map<string, KeyboardRecordingNote>())
   const eraseRef = useRef({ active: false, lastKey: '' })
   const rightEraseRef = useRef({ active: false, lastKey: '' })
+  const rightClickRollActionRef = useRef<RightClickRollAction | null>(null)
   const erasedNoteIdsRef = useRef(new Set<string>())
   const keyPreviewRef = useRef({ active: false })
   const rollPointerGeometryRef = useRef<RollPointerGeometry | null>(null)
@@ -431,6 +540,11 @@ function App() {
     eraseDraggedCellFromPointer: () => {},
     eraseRightDraggedCellFromPointer: () => {},
     finishPatternSelection: () => {},
+    finishPatternRepeat: () => {},
+    finishKeyboardNote: () => {},
+    startKeyboardNote: () => {},
+    updatePatternRepeatPreview: () => {},
+    updateLassoSelectionFromPointer: () => {},
     moveDraggedNoteFromPointer: () => {},
     pasteSelectedNotes: () => {},
     redoProject: () => {},
@@ -438,7 +552,6 @@ function App() {
     undoProject: () => {},
     stopHeldPreview: () => {},
     togglePlayback: () => {},
-    zoomRoll: () => {},
   })
 
   const selectedTrack = useMemo(
@@ -458,28 +571,49 @@ function App() {
     () => selectedTrackNotes.filter((note) => selectedNoteIdSet.has(note.id)),
     [selectedNoteIdSet, selectedTrackNotes],
   )
-  const projectEndBeat = useMemo(() => getNotesEndBeat(project.notesByTrack), [project.notesByTrack])
-  const projectLengthBeats = Math.max(
-    DEFAULT_PROJECT_LENGTH_BEATS,
-    project.lengthBeats ?? DEFAULT_PROJECT_LENGTH_BEATS,
-    projectEndBeat,
+  const editableSelectedNotes = useMemo(
+    () => (
+      selectedPatternNotes.length > 0
+        ? selectedPatternNotes
+        : selectedNote
+          ? [selectedNote]
+          : []
+    ),
+    [selectedNote, selectedPatternNotes],
   )
+  const sortedEditableSelectedNotes = useMemo(
+    () => [...editableSelectedNotes].sort((left, right) => (
+      left.startBeat - right.startBeat || right.pitch - left.pitch
+    )),
+    [editableSelectedNotes],
+  )
+  const projectEndBeat = useMemo(() => getNotesEndBeat(project.notesByTrack), [project.notesByTrack])
+  const projectLengthBeats = Math.max(DEFAULT_PROJECT_LENGTH_BEATS, projectEndBeat)
   const visibleBars = getVisibleBars(projectLengthBeats)
   const totalBeats = visibleBars * BEATS_PER_BAR
   const stepsPerBeat = noteDivision / 4
   const defaultDurationBeats = Math.max(MIN_DURATION_BEATS, Math.round(lastNoteDurationRef.current * stepsPerBeat) / stepsPerBeat)
-  const lengthSeconds = Math.round((projectLengthBeats * 60) / project.tempo)
   const totalSteps = totalBeats * stepsPerBeat
-  const stepWidth = DEFAULT_STEP_WIDTH * rollZoom
+  const rollPitches = selectedTrack?.instrumentId === 'drums' ? DRUM_PITCHES : PITCHES
+  const tempoGraphPercent = Math.min(
+    100,
+    Math.max(0, ((project.tempo - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100),
+  )
+  const beatWidth = DEFAULT_BEAT_WIDTH
+  const stepWidth = beatWidth / stepsPerBeat
   const rollTimelineStyle = { gridTemplateColumns: `repeat(${visibleBars}, minmax(64px, 1fr))` }
-  const rollShellStyle = {
-    '--bar-width': `${stepWidth * stepsPerBeat * BEATS_PER_BAR}px`,
-    '--beat-width': `${stepWidth * stepsPerBeat}px`,
-    '--roll-grid-height': `${PITCHES.length * ROLL_ROW_HEIGHT}px`,
-    '--roll-grid-width': `${totalSteps * stepWidth}px`,
+  const rollSurfaceStyle = {
+    '--bar-width': `${beatWidth * BEATS_PER_BAR}px`,
+    '--beat-width': `${beatWidth}px`,
+    '--roll-grid-height': `${rollPitches.length * ROLL_ROW_HEIGHT}px`,
+    '--roll-grid-width': `${totalBeats * beatWidth}px`,
     '--step-width': `${stepWidth}px`,
     '--total-steps': totalSteps,
-    gridTemplateColumns: `64px minmax(${totalSteps * stepWidth}px, 1fr)`,
+    '--visible-bars': visibleBars,
+  } as CSSProperties
+  const rollShellStyle = {
+    ...rollSurfaceStyle,
+    gridTemplateColumns: `64px minmax(${totalBeats * beatWidth}px, 1fr)`,
   } as CSSProperties
   const selectedNotesByPitch = useMemo(() => {
     const notesByPitch = new Map<number, Note[]>()
@@ -605,41 +739,23 @@ function App() {
   useEffect(() => {
     playbackBeatRef.current = playbackBeat
     totalBeatsRef.current = totalBeats
-    totalStepsRef.current = totalSteps
     pianoRollRef.current?.style.setProperty(
       '--playhead-left',
       `${Math.min(100, (playbackBeat / totalBeats) * 100)}%`,
     )
-  }, [playbackBeat, totalBeats, totalSteps])
+  }, [playbackBeat, totalBeats])
 
   useEffect(() => {
     setTempoInput(String(project.tempo))
   }, [project.tempo])
 
   useEffect(() => {
-    setLengthSecondsInput(String(lengthSeconds))
-  }, [lengthSeconds])
-
-  useEffect(() => {
     setSelectedNoteIds([])
     setSelectionBox(null)
     patternSelectionRef.current = null
+    lassoSelectionRef.current = { active: false, points: [] }
+    setLassoPoints([])
   }, [selectedTrack?.id])
-
-  useEffect(() => {
-    const roll = pianoRollRef.current
-    if (!roll) return undefined
-
-    function handleNativeWheel(event: WheelEvent) {
-      if (!event.ctrlKey) return
-
-      event.preventDefault()
-      interactionHandlersRef.current.zoomRoll(event.deltaY > 0 ? -1 : 1)
-    }
-
-    roll.addEventListener('wheel', handleNativeWheel, { passive: false })
-    return () => roll.removeEventListener('wheel', handleNativeWheel)
-  }, [])
 
   interactionHandlersRef.current.togglePlayback = togglePlayback
   interactionHandlersRef.current.copySelectedNotes = copySelectedNotes
@@ -649,12 +765,16 @@ function App() {
   interactionHandlersRef.current.eraseDraggedCellFromPointer = eraseDraggedCellFromPointer
   interactionHandlersRef.current.eraseRightDraggedCellFromPointer = eraseRightDraggedCellFromPointer
   interactionHandlersRef.current.finishPatternSelection = finishPatternSelection
+  interactionHandlersRef.current.finishPatternRepeat = finishPatternRepeat
+  interactionHandlersRef.current.finishKeyboardNote = finishKeyboardNote
+  interactionHandlersRef.current.startKeyboardNote = startKeyboardNote
+  interactionHandlersRef.current.updatePatternRepeatPreview = updatePatternRepeatPreview
+  interactionHandlersRef.current.updateLassoSelectionFromPointer = updateLassoSelectionFromPointer
   interactionHandlersRef.current.pasteSelectedNotes = pasteSelectedNotes
   interactionHandlersRef.current.redoProject = redoProject
   interactionHandlersRef.current.undoProject = undoProject
   interactionHandlersRef.current.updatePatternSelectionFromPointer = updatePatternSelectionFromPointer
   interactionHandlersRef.current.stopHeldPreview = stopHeldPreview
-  interactionHandlersRef.current.zoomRoll = zoomRoll
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -693,27 +813,21 @@ function App() {
           return
         }
 
-        if (event.code === 'Equal' || event.code === 'NumpadAdd') {
-          event.preventDefault()
-          interactionHandlersRef.current.zoomRoll(1)
-          return
-        }
+      }
 
-        if (event.code === 'Minus' || event.code === 'NumpadSubtract') {
-          event.preventDefault()
-          interactionHandlersRef.current.zoomRoll(-1)
-          return
-        }
+      const target = event.target
+      const isTypingTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+
+      if (!event.repeat && !isTypingTarget) {
+        interactionHandlersRef.current.startKeyboardNote(event.code)
       }
 
       if (event.code === 'Delete' || event.code === 'Backspace') {
-        const target = event.target
-        if (
-          target instanceof HTMLInputElement ||
-          target instanceof HTMLTextAreaElement ||
-          target instanceof HTMLSelectElement ||
-          (target instanceof HTMLElement && target.isContentEditable)
-        ) {
+        if (isTypingTarget) {
           return
         }
 
@@ -727,15 +841,32 @@ function App() {
       interactionHandlersRef.current.togglePlayback()
     }
 
+    function handleKeyUp(event: KeyboardEvent) {
+      interactionHandlersRef.current.finishKeyboardNote(event.code)
+    }
+
     function flushPointerMove() {
       pointerMoveFrameRef.current = 0
       const pendingMove = pendingPointerMoveRef.current
       pendingPointerMoveRef.current = null
       if (!pendingMove) return
 
+      const rightClickAction = rightClickRollActionRef.current
+      if (rightClickAction?.active && (pendingMove.buttons & 2) === 2) {
+        const movedDistance = Math.hypot(
+          pendingMove.clientX - rightClickAction.startX,
+          pendingMove.clientY - rightClickAction.startY,
+        )
+        if (movedDistance > 4) {
+          rightClickAction.moved = true
+        }
+      }
+
       interactionHandlersRef.current.moveDraggedNoteFromPointer(pendingMove.clientX, pendingMove.clientY)
+      interactionHandlersRef.current.updatePatternRepeatPreview(pendingMove.clientX)
       interactionHandlersRef.current.eraseDraggedCellFromPointer(pendingMove.clientX, pendingMove.clientY)
       interactionHandlersRef.current.updatePatternSelectionFromPointer(pendingMove.clientX, pendingMove.clientY)
+      interactionHandlersRef.current.updateLassoSelectionFromPointer(pendingMove.clientX, pendingMove.clientY)
       if (rightEraseRef.current.active && (pendingMove.buttons & 2) !== 2) {
         rightEraseRef.current = { active: false, lastKey: '' }
         erasedNoteIdsRef.current = new Set()
@@ -748,6 +879,8 @@ function App() {
       const hasActivePointerTask =
         Boolean(noteDragRef.current?.active) ||
         Boolean(patternSelectionRef.current?.active) ||
+        Boolean(patternRepeatRef.current?.active) ||
+        lassoSelectionRef.current.active ||
         eraseRef.current.active ||
         rightEraseRef.current.active
 
@@ -764,37 +897,67 @@ function App() {
       }
     }
 
-    function clearPointerState() {
+    function clearPointerState(event?: PointerEvent) {
       if (pointerMoveFrameRef.current !== 0) {
         window.cancelAnimationFrame(pointerMoveFrameRef.current)
         flushPointerMove()
       }
+      const rightClickAction = rightClickRollActionRef.current
       pendingPointerMoveRef.current = null
       interactionHandlersRef.current.finishPatternSelection()
+      interactionHandlersRef.current.finishPatternRepeat()
       noteDragRef.current = null
       patternSelectionRef.current = null
+      lassoSelectionRef.current = { active: false, points: [] }
+      setLassoPoints([])
       eraseRef.current = { active: false, lastKey: '' }
       rightEraseRef.current = { active: false, lastKey: '' }
+      rightClickRollActionRef.current = null
       erasedNoteIdsRef.current = new Set()
       keyPreviewRef.current.active = false
       rollPointerGeometryRef.current = null
       setDraggingNoteId(null)
       interactionHandlersRef.current.stopHeldPreview()
+
+      if (
+        event?.type === 'pointerup' &&
+        event.button === 2 &&
+        rightClickAction?.active &&
+        !rightClickAction.moved &&
+        !rightClickAction.deleted
+      ) {
+        setPianoRollContextMenu({
+          x: rightClickAction.menuX,
+          y: rightClickAction.menuY,
+        })
+      }
+    }
+
+    function suppressNativeContextMenu(event: MouseEvent) {
+      if (rightClickRollActionRef.current || pianoRollRef.current?.contains(event.target as Node)) {
+        event.preventDefault()
+      }
+    }
+
+    function clearPointerStateOnBlur() {
+      clearPointerState()
     }
 
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', clearPointerState)
     window.addEventListener('pointercancel', clearPointerState)
-    window.addEventListener('contextmenu', clearPointerState)
-    window.addEventListener('blur', clearPointerState)
+    window.addEventListener('contextmenu', suppressNativeContextMenu)
+    window.addEventListener('blur', clearPointerStateOnBlur)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', clearPointerState)
       window.removeEventListener('pointercancel', clearPointerState)
-      window.removeEventListener('contextmenu', clearPointerState)
-      window.removeEventListener('blur', clearPointerState)
+      window.removeEventListener('contextmenu', suppressNativeContextMenu)
+      window.removeEventListener('blur', clearPointerStateOnBlur)
       if (pointerMoveFrameRef.current !== 0) {
         window.cancelAnimationFrame(pointerMoveFrameRef.current)
       }
@@ -820,7 +983,7 @@ function App() {
       const roll = pianoRollRef.current
       if (roll && totalBeatsRef.current > 0) {
         const gridWidth = Math.max(
-          totalStepsRef.current * DEFAULT_STEP_WIDTH * rollZoom,
+          totalBeatsRef.current * DEFAULT_BEAT_WIDTH,
           roll.scrollWidth - KEY_COLUMN_WIDTH,
         )
         const playheadX = KEY_COLUMN_WIDTH + (currentBeat / totalBeatsRef.current) * gridWidth
@@ -841,7 +1004,7 @@ function App() {
 
     frameId = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frameId)
-  }, [isPlaying, rollZoom])
+  }, [isPlaying])
 
   function updateProjectTitle(title: string) {
     setProject((current) => (current.title === title ? current : { ...current, title }))
@@ -872,39 +1035,6 @@ function App() {
     updateTempo(parsedTempo)
   }
 
-  function updateProjectLengthSeconds(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds <= 0) return
-
-    const nextLengthBeats = Math.max(
-      DEFAULT_PROJECT_LENGTH_BEATS,
-      projectEndBeat,
-      snapBeatToGrid((seconds * project.tempo) / 60),
-    )
-    setProject((current) =>
-      nearlyEqual(current.lengthBeats ?? DEFAULT_PROJECT_LENGTH_BEATS, nextLengthBeats)
-        ? current
-        : { ...current, lengthBeats: nextLengthBeats },
-    )
-    setLengthSecondsInput(String(Math.round((nextLengthBeats * 60) / project.tempo)))
-  }
-
-  function commitLengthSecondsInput() {
-    const parsedSeconds = Number(lengthSecondsInput)
-    if (Number.isFinite(parsedSeconds) && parsedSeconds > 0) {
-      updateProjectLengthSeconds(parsedSeconds)
-      return
-    }
-
-    setLengthSecondsInput(String(lengthSeconds))
-  }
-
-  function changeLengthSecondsInput(value: string) {
-    setLengthSecondsInput(value)
-    const parsedSeconds = Number(value)
-    if (!Number.isFinite(parsedSeconds) || parsedSeconds <= 0 || value.trim() === '') return
-    updateProjectLengthSeconds(parsedSeconds)
-  }
-
   function addTrack() {
     setProject((current) => {
       const trackId = createId('track')
@@ -914,6 +1044,7 @@ function App() {
         instrumentId: 'gm-0',
         volume: 0.85,
         mute: false,
+        channel: Math.min(16, current.tracks.length + 1),
         color: TRACK_COLORS[current.tracks.length % TRACK_COLORS.length],
       }
 
@@ -938,6 +1069,7 @@ function App() {
           nextTrack.instrumentId !== track.instrumentId ||
           nextTrack.volume !== track.volume ||
           nextTrack.mute !== track.mute ||
+          nextTrack.channel !== track.channel ||
           nextTrack.name !== track.name ||
           nextTrack.color !== track.color
         ) {
@@ -1036,16 +1168,45 @@ function App() {
     })
   }
 
-  function openPianoRollContextMenu(event: ReactMouseEvent<HTMLElement>) {
+  function openTrackPanelContextMenu(event: ReactMouseEvent<HTMLElement>) {
+    if (event.currentTarget !== event.target) return
+
     event.preventDefault()
     event.stopPropagation()
-    rightEraseRef.current = { active: false, lastKey: '' }
-    erasedNoteIdsRef.current = new Set()
-    setTrackContextMenu(null)
-    setPianoRollContextMenu({
+    setPianoRollContextMenu(null)
+    setTrackContextMenu({
+      trackId: selectedTrack?.id ?? project.tracks[0].id,
       x: event.clientX,
       y: event.clientY,
     })
+  }
+
+  function beginRightClickRollAction(
+    event: ReactPointerEvent<HTMLElement>,
+    options: { deleteImmediately?: boolean; note?: Note } = {},
+  ) {
+    if (!selectedTrack || event.button !== 2) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    setTrackContextMenu(null)
+    setPianoRollContextMenu(null)
+    cacheRollPointerGeometry()
+    rightEraseRef.current = { active: true, lastKey: '' }
+    erasedNoteIdsRef.current = new Set(options.note ? [options.note.id] : [])
+    rightClickRollActionRef.current = {
+      active: true,
+      deleted: Boolean(options.deleteImmediately),
+      menuX: event.clientX,
+      menuY: event.clientY,
+      moved: false,
+      startX: event.clientX,
+      startY: event.clientY,
+    }
+
+    if (options.deleteImmediately && options.note) {
+      deleteNote(options.note.id)
+    }
   }
 
   function confirmInstrumentDialog() {
@@ -1123,6 +1284,76 @@ function App() {
     changeHeldPreviewPitch(pitch)
   }
 
+  function getKeyboardInputPitch(code: string) {
+    const mappedPitch = KEYBOARD_INPUT_MAP[code]
+    if (mappedPitch === undefined) return null
+    if (selectedTrack?.instrumentId !== 'drums') return mappedPitch
+
+    const drumIndex = Object.keys(KEYBOARD_INPUT_MAP).indexOf(code)
+    return DRUM_PITCHES[Math.min(DRUM_PITCHES.length - 1, Math.max(0, 34 + drumIndex))]
+  }
+
+  function startKeyboardNote(code: string) {
+    if (!keyboardInputEnabled || !isPlaying || !selectedTrack) return
+    if (keyboardRecordingRef.current.has(code)) return
+
+    const pitch = getKeyboardInputPitch(code)
+    if (pitch === null) return
+
+    const startBeat = snapBeatToGrid(getCurrentPlaybackBeat())
+    const note: Note = {
+      id: createId('note'),
+      pitch,
+      startBeat,
+      durationBeats: MIN_DURATION_BEATS,
+      velocity: 0.78,
+      pitchBend: 0,
+      volume: 1,
+      pan: 0,
+      expression: 1,
+      modulation: 0,
+    }
+
+    keyboardRecordingRef.current.set(code, {
+      noteId: note.id,
+      pitch,
+      startBeat,
+    })
+    setSelectedNoteIds([note.id])
+    setProject((current) => ({
+      ...current,
+      selectedNoteId: note.id,
+      notesByTrack: {
+        ...current.notesByTrack,
+        [selectedTrack.id]: [...(current.notesByTrack[selectedTrack.id] ?? []), note],
+      },
+    }))
+    void previewNote(selectedTrack.instrumentId, pitch, note.velocity, 0.25)
+  }
+
+  function finishKeyboardNote(code: string) {
+    const recording = keyboardRecordingRef.current.get(code)
+    if (!recording || !selectedTrack) return
+
+    keyboardRecordingRef.current.delete(code)
+    const endBeat = Math.max(recording.startBeat + MIN_DURATION_BEATS, snapBeatToGrid(getCurrentPlaybackBeat()))
+    const durationBeats = Math.max(MIN_DURATION_BEATS, endBeat - recording.startBeat)
+    setProject((current) => {
+      const notes = current.notesByTrack[selectedTrack.id] ?? []
+      return {
+        ...current,
+        notesByTrack: {
+          ...current.notesByTrack,
+          [selectedTrack.id]: notes.map((note) =>
+            note.id === recording.noteId
+              ? { ...note, durationBeats }
+              : note,
+          ),
+        },
+      }
+    })
+  }
+
   function cacheRollPointerGeometry() {
     const roll = pianoRollRef.current
     if (!roll) {
@@ -1151,8 +1382,8 @@ function App() {
     const step = Math.floor((x / gridWidth) * pointerTotalSteps)
     const rowIndex = Math.floor(y / ROLL_ROW_HEIGHT)
 
-    if (step < 0 || step >= pointerTotalSteps || rowIndex < 0 || rowIndex >= PITCHES.length) return null
-    return { pitch: PITCHES[rowIndex], rowIndex, step }
+    if (step < 0 || step >= pointerTotalSteps || rowIndex < 0 || rowIndex >= rollPitches.length) return null
+    return { pitch: rollPitches[rowIndex], rowIndex, step }
   }
 
   function getSelectionBounds(selection: PatternSelection) {
@@ -1188,7 +1419,7 @@ function App() {
     const endBeat = (endStep + 1) / stepsPerBeat
     const selectedIds = selectedTrackNotes
       .filter((note) => {
-        const rowIndex = PITCHES.indexOf(note.pitch)
+        const rowIndex = rollPitches.indexOf(note.pitch)
         const noteEndBeat = note.startBeat + note.durationBeats
         return (
           rowIndex >= startRow &&
@@ -1206,6 +1437,97 @@ function App() {
         ? current
         : { ...current, selectedNoteId: nextSelectedNoteId }
     })
+  }
+
+  function getPointerLassoPoint(clientX: number, clientY: number): LassoPoint | null {
+    const roll = pianoRollRef.current
+    if (!roll) return null
+
+    const geometry = rollPointerGeometryRef.current ?? {
+      gridWidth: Math.max(totalSteps * stepWidth, roll.clientWidth - KEY_COLUMN_WIDTH),
+      rect: roll.getBoundingClientRect(),
+      totalSteps,
+    }
+    const gridX = clientX - geometry.rect.left - KEY_COLUMN_WIDTH + roll.scrollLeft
+    const gridY = clientY - geometry.rect.top - ROLL_HEADER_HEIGHT + roll.scrollTop
+    if (gridX < 0 || gridY < 0) return null
+
+    return {
+      gridX: Math.min(Math.max(gridX, 0), geometry.gridWidth),
+      gridY: Math.min(Math.max(gridY, 0), rollPitches.length * ROLL_ROW_HEIGHT),
+      viewX: KEY_COLUMN_WIDTH + Math.min(Math.max(gridX, 0), geometry.gridWidth),
+      viewY: ROLL_HEADER_HEIGHT + Math.min(Math.max(gridY, 0), rollPitches.length * ROLL_ROW_HEIGHT),
+    }
+  }
+
+  function isPointInPolygon(pointX: number, pointY: number, points: LassoPoint[]) {
+    if (points.length < 3) return false
+
+    let inside = false
+    for (let index = 0, previousIndex = points.length - 1; index < points.length; previousIndex = index, index += 1) {
+      const current = points[index]
+      const previous = points[previousIndex]
+      const intersects =
+        current.gridY > pointY !== previous.gridY > pointY &&
+        pointX < ((previous.gridX - current.gridX) * (pointY - current.gridY)) / (previous.gridY - current.gridY) + current.gridX
+      if (intersects) inside = !inside
+    }
+
+    return inside
+  }
+
+  function selectNotesInLasso(points: LassoPoint[]) {
+    if (!selectedTrack || points.length < 3) return
+
+    const geometry = rollPointerGeometryRef.current
+    if (!geometry) return
+
+    const selectedIds = selectedTrackNotes
+      .filter((note) => {
+        const rowIndex = rollPitches.indexOf(note.pitch)
+        if (rowIndex < 0) return false
+
+        const noteCenterX = ((note.startBeat + note.durationBeats / 2) / totalBeats) * geometry.gridWidth
+        const noteCenterY = (rowIndex + 0.5) * ROLL_ROW_HEIGHT
+        return isPointInPolygon(noteCenterX, noteCenterY, points)
+      })
+      .map((note) => note.id)
+
+    setSelectedNoteIds(selectedIds)
+    setProject((current) => {
+      const nextSelectedNoteId = selectedIds[0] ?? null
+      return current.selectedNoteId === nextSelectedNoteId
+        ? current
+        : { ...current, selectedNoteId: nextSelectedNoteId }
+    })
+  }
+
+  function beginLassoSelection(event: ReactPointerEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    cacheRollPointerGeometry()
+    const point = getPointerLassoPoint(event.clientX, event.clientY)
+    if (!point) return
+
+    setSelectionBox(null)
+    setSelectedNoteIds([])
+    lassoSelectionRef.current = { active: true, points: [point] }
+    setLassoPoints([point])
+  }
+
+  function updateLassoSelectionFromPointer(clientX: number, clientY: number) {
+    const lasso = lassoSelectionRef.current
+    if (!lasso.active) return
+
+    const point = getPointerLassoPoint(clientX, clientY)
+    if (!point) return
+
+    const previous = lasso.points.at(-1)
+    if (previous && Math.hypot(previous.viewX - point.viewX, previous.viewY - point.viewY) < 4) return
+
+    lasso.points = [...lasso.points, point]
+    setLassoPoints(lasso.points)
+    selectNotesInLasso(lasso.points)
   }
 
   function updatePatternSelectionFromPointer(clientX: number, clientY: number) {
@@ -1243,6 +1565,15 @@ function App() {
 
   function clampBeatToSong(beat: number, durationBeats = 0) {
     return Math.max(0, Math.min(totalBeats - durationBeats, beat))
+  }
+
+  function getRowLabel(pitch: number) {
+    if (selectedTrack?.instrumentId === 'drums') {
+      return DRUM_LABELS[pitch] ?? `Drum ${pitch}`
+    }
+
+    const name = getPitchName(pitch)
+    return name.startsWith('C') ? name : ''
   }
 
   function findNoteAtCell(trackId: string, pitch: number, step: number) {
@@ -1293,10 +1624,12 @@ function App() {
     if (!drag?.active) return
     if (drag.lastPitch === pitch && drag.lastStep === step) return
 
+    const startStep = Math.max(0, step - drag.grabStepOffset)
+    const startPitch = pitch - drag.grabPitchOffset
     if (drag.groupNoteIds.length > 1) {
-      moveNoteGroupToCell(drag, pitch, step)
+      moveNoteGroupToCell(drag, startPitch, startStep)
     } else {
-      moveNoteToCell(drag.noteId, drag.trackId, pitch, step)
+      moveNoteToCell(drag.noteId, drag.trackId, startPitch, startStep)
     }
     if (drag.lastPitch !== pitch) {
       changeHeldPreviewPitch(pitch)
@@ -1315,8 +1648,8 @@ function App() {
     const requestedPitchDelta = pitch - drag.originPitch
     const requestedStepDelta = step - drag.originStep
     const originalNotes = drag.originalNotes
-    const minPitchDelta = Math.max(...originalNotes.map((note) => PITCHES[PITCHES.length - 1] - note.pitch))
-    const maxPitchDelta = Math.min(...originalNotes.map((note) => PITCHES[0] - note.pitch))
+    const minPitchDelta = Math.max(...originalNotes.map((note) => rollPitches[rollPitches.length - 1] - note.pitch))
+    const maxPitchDelta = Math.min(...originalNotes.map((note) => rollPitches[0] - note.pitch))
     const minStepDelta = Math.max(...originalNotes.map((note) => -Math.round(note.startBeat * stepsPerBeat)))
     const maxStepDelta = Math.min(
       ...originalNotes.map((note) =>
@@ -1359,6 +1692,50 @@ function App() {
     })
   }
 
+  function getGrabStepOffset(note: Note, pointerStep: number | null) {
+    if (pointerStep === null) return 0
+
+    const noteStartStep = Math.round(note.startBeat * stepsPerBeat)
+    const noteDurationSteps = Math.max(1, Math.round(note.durationBeats * stepsPerBeat))
+    return Math.max(0, Math.min(noteDurationSteps - 1, pointerStep - noteStartStep))
+  }
+
+  function beginSelectionBoxMove(event: ReactPointerEvent<HTMLSpanElement>) {
+    if (event.button !== 0 || !selectedTrack || selectedPatternNotes.length === 0) return
+
+    const pointerCell = getCellFromPointer(event.clientX, event.clientY)
+    if (!pointerCell) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    cacheRollPointerGeometry()
+    const selectedRows = selectedPatternNotes
+      .map((note) => rollPitches.indexOf(note.pitch))
+      .filter((rowIndex) => rowIndex >= 0)
+    if (selectedRows.length === 0) return
+
+    const topRow = Math.min(...selectedRows)
+    const originPitch = rollPitches[topRow]
+    const originStep = Math.min(
+      ...selectedPatternNotes.map((note) => Math.round(note.startBeat * stepsPerBeat)),
+    )
+    const firstNote = selectedPatternNotes[0]
+    noteDragRef.current = {
+      active: true,
+      grabPitchOffset: pointerCell.pitch - originPitch,
+      grabStepOffset: Math.max(0, pointerCell.step - originStep),
+      groupNoteIds: selectedPatternNotes.map((note) => note.id),
+      noteId: firstNote.id,
+      originalNotes: selectedPatternNotes,
+      originPitch,
+      originStep,
+      trackId: selectedTrack.id,
+      lastPitch: pointerCell.pitch,
+      lastStep: pointerCell.step,
+    }
+    setDraggingNoteId(firstNote.id)
+  }
+
   function eraseNoteAtCell(pitch: number, step: number) {
     const beat = step / stepsPerBeat
     const currentProject = projectRef.current
@@ -1370,8 +1747,11 @@ function App() {
         beat < note.startBeat + note.durationBeats,
     )
 
-    if (!noteToDelete || erasedNoteIdsRef.current.has(noteToDelete.id)) return
+    if (!noteToDelete || erasedNoteIdsRef.current.has(noteToDelete.id)) return false
     erasedNoteIdsRef.current.add(noteToDelete.id)
+    if (rightClickRollActionRef.current?.active) {
+      rightClickRollActionRef.current.deleted = true
+    }
 
     setProject((current) => {
       const nextProject = {
@@ -1387,13 +1767,14 @@ function App() {
       projectRef.current = nextProject
       return nextProject
     })
+    return true
   }
 
   function eraseNoteAtCellOnce(pitch: number, step: number, eraseState: { lastKey: string }) {
     const key = `${pitch}-${step}`
-    if (eraseState.lastKey === key) return
+    if (eraseState.lastKey === key) return false
     eraseState.lastKey = key
-    eraseNoteAtCell(pitch, step)
+    return eraseNoteAtCell(pitch, step)
   }
 
   function eraseDraggedCellFromPointer(clientX: number, clientY: number) {
@@ -1411,7 +1792,7 @@ function App() {
   }
 
   function beginPatternSelection(pitch: number, step: number, event: ReactPointerEvent<HTMLElement>) {
-    const rowIndex = PITCHES.indexOf(pitch)
+    const rowIndex = rollPitches.indexOf(pitch)
     if (rowIndex < 0) return
 
     event.preventDefault()
@@ -1436,6 +1817,10 @@ function App() {
     if (nextToolMode !== 'select') {
       setSelectionBox(null)
       patternSelectionRef.current = null
+    }
+    if (nextToolMode !== 'lasso') {
+      lassoSelectionRef.current = { active: false, points: [] }
+      setLassoPoints([])
     }
   }
 
@@ -1474,38 +1859,99 @@ function App() {
     lastNoteDurationRef.current = note.durationBeats
     setDraggingNoteId(note.id)
     cacheRollPointerGeometry()
+    const pointerCell = getCellFromPointer(event.clientX, event.clientY)
+    const noteStartStep = Math.round(note.startBeat * stepsPerBeat)
     const groupNoteIds = isPatternMember ? selectedNoteIds : [note.id]
     const groupNoteIdSet = new Set(groupNoteIds)
     noteDragRef.current = {
       active: true,
+      grabPitchOffset: 0,
+      grabStepOffset: getGrabStepOffset(note, pointerCell?.step ?? null),
       groupNoteIds,
       noteId: note.id,
       originalNotes: selectedTrackNotes.filter((item) => groupNoteIdSet.has(item.id)),
       originPitch: note.pitch,
-      originStep: Math.round(note.startBeat * stepsPerBeat),
+      originStep: noteStartStep,
       trackId: selectedTrack.id,
       lastPitch: note.pitch,
-      lastStep: Math.round(note.startBeat * stepsPerBeat),
+      lastStep: pointerCell?.step ?? noteStartStep,
     }
     startHeldPreview(note.pitch, note.velocity)
   }
 
-  function beginRightEraseNote(note: Note, event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!selectedTrack || event.button !== 2) return
-    if (toolMode !== 'erase') return
+  function beginPatternRepeat(event: ReactPointerEvent<HTMLSpanElement>) {
+    if (event.button !== 0 || !selectedTrack || selectedPatternNotes.length === 0 || !selectionBox) return
 
     event.preventDefault()
     event.stopPropagation()
-    rightEraseRef.current = { active: true, lastKey: '' }
-    erasedNoteIdsRef.current = new Set([note.id])
-    deleteNote(note.id)
+    const baseStartBeat = Math.min(...selectedPatternNotes.map((note) => note.startBeat))
+    const baseEndBeat = Math.max(...selectedPatternNotes.map((note) => note.startBeat + note.durationBeats))
+    if (baseEndBeat <= baseStartBeat) return
+
+    patternRepeatRef.current = {
+      active: true,
+      baseEndBeat,
+      baseStartBeat,
+      baseWidth: selectionBox.width,
+      notes: selectedPatternNotes,
+      startClientX: event.clientX,
+      trackId: selectedTrack.id,
+    }
+  }
+
+  function updatePatternRepeatPreview(clientX: number) {
+    const repeat = patternRepeatRef.current
+    if (!repeat?.active || !selectionBox) return
+
+    const nextWidth = Math.max(repeat.baseWidth, repeat.baseWidth + clientX - repeat.startClientX)
+    if (Math.abs(nextWidth - selectionBox.width) < 1) return
+    setSelectionBox((current) => (current ? { ...current, selecting: false, width: nextWidth } : current))
+  }
+
+  function finishPatternRepeat() {
+    const repeat = patternRepeatRef.current
+    if (!repeat?.active) return
+    patternRepeatRef.current = null
+
+    const currentWidth = selectionBox?.width ?? repeat.baseWidth
+    const repeatCount = Math.floor(currentWidth / repeat.baseWidth)
+    if (repeatCount <= 1) return
+
+    const spanBeats = repeat.baseEndBeat - repeat.baseStartBeat
+    const nextNotes: Note[] = []
+    for (let repeatIndex = 1; repeatIndex < repeatCount; repeatIndex += 1) {
+      const beatOffset = spanBeats * repeatIndex
+      repeat.notes.forEach((note) => {
+        nextNotes.push({
+          ...note,
+          id: createId('note'),
+          startBeat: snapBeatToGrid(note.startBeat + beatOffset),
+        })
+      })
+    }
+
+    const nextSelectedIds = [...repeat.notes.map((note) => note.id), ...nextNotes.map((note) => note.id)]
+    setSelectedNoteIds(nextSelectedIds)
+    setProject((current) => ({
+      ...current,
+      selectedNoteId: nextSelectedIds[0] ?? current.selectedNoteId,
+      notesByTrack: {
+        ...current.notesByTrack,
+        [repeat.trackId]: [...(current.notesByTrack[repeat.trackId] ?? []), ...nextNotes],
+      },
+    }))
+  }
+
+  function beginRightEraseNote(note: Note, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!selectedTrack || event.button !== 2) return
+    beginRightClickRollAction(event, { deleteImmediately: true, note })
   }
 
   function beginCellAction(pitch: number, step: number, event: ReactPointerEvent<HTMLElement>) {
     if (!selectedTrack) return
 
     if (event.button === 2) {
-      event.preventDefault()
+      beginRightClickRollAction(event)
       return
     }
 
@@ -1520,6 +1966,11 @@ function App() {
       return
     }
 
+    if (toolMode === 'lasso' || event.altKey) {
+      beginLassoSelection(event)
+      return
+    }
+
     if (toolMode === 'select' || event.shiftKey) {
       beginPatternSelection(pitch, step, event)
       return
@@ -1529,13 +1980,16 @@ function App() {
     if (existingNote) {
       setDraggingNoteId(existingNote.id)
       cacheRollPointerGeometry()
+      const existingNoteStartStep = Math.round(existingNote.startBeat * stepsPerBeat)
       noteDragRef.current = {
         active: true,
+        grabPitchOffset: 0,
+        grabStepOffset: getGrabStepOffset(existingNote, step),
         groupNoteIds: [existingNote.id],
         noteId: existingNote.id,
         originalNotes: [existingNote],
         originPitch: pitch,
-        originStep: step,
+        originStep: existingNoteStartStep,
         trackId: selectedTrack.id,
         lastPitch: pitch,
         lastStep: step,
@@ -1557,11 +2011,18 @@ function App() {
       startBeat: step / stepsPerBeat,
       durationBeats: Math.min(defaultDurationBeats, totalBeats - step / stepsPerBeat),
       velocity: 0.78,
+      pitchBend: 0,
+      volume: 1,
+      pan: 0,
+      expression: 1,
+      modulation: 0,
     }
 
     cacheRollPointerGeometry()
     noteDragRef.current = {
       active: true,
+      grabPitchOffset: 0,
+      grabStepOffset: 0,
       groupNoteIds: [note.id],
       noteId: note.id,
       originalNotes: [note],
@@ -1591,7 +2052,7 @@ function App() {
   }
 
   function beginRowContextErase(_pitch: number, event: ReactMouseEvent<HTMLDivElement>) {
-    openPianoRollContextMenu(event)
+    event.preventDefault()
   }
 
   function deleteSelectedNote() {
@@ -1637,6 +2098,87 @@ function App() {
         ),
       },
     }))
+  }
+
+  function getSelectedNoteValue(key: keyof Pick<Note, 'velocity' | 'pitchBend' | 'volume' | 'pan' | 'expression' | 'modulation'>) {
+    if (editableSelectedNotes.length === 0) return key === 'pan' || key === 'pitchBend' ? 0 : 1
+
+    const fallback = key === 'pan' || key === 'pitchBend' ? 0 : 1
+    return editableSelectedNotes.reduce((total, note) => total + Number(note[key] ?? fallback), 0) / editableSelectedNotes.length
+  }
+
+  function updateSelectedNotes(
+    updates: Partial<Pick<Note, 'velocity' | 'pitchBend' | 'volume' | 'pan' | 'expression' | 'modulation'>>,
+  ) {
+    if (!selectedTrack || editableSelectedNotes.length === 0) return
+
+    const targetIds = new Set(editableSelectedNotes.map((note) => note.id))
+    setProject((current) => {
+      let changed = false
+      const nextNotes = (current.notesByTrack[selectedTrack.id] ?? []).map((note) => {
+        if (!targetIds.has(note.id)) return note
+
+        const nextNote = { ...note, ...updates }
+        if (Object.entries(updates).some(([key, value]) => note[key as keyof Note] !== value)) {
+          changed = true
+          return nextNote
+        }
+
+        return note
+      })
+
+      return changed
+        ? {
+            ...current,
+            notesByTrack: {
+              ...current.notesByTrack,
+              [selectedTrack.id]: nextNotes,
+            },
+          }
+        : current
+    })
+  }
+
+  function updateNoteEvent(noteId: string, updates: Partial<Pick<Note, 'pitch' | 'startBeat' | 'durationBeats' | 'velocity'>>) {
+    if (!selectedTrack) return
+
+    setProject((current) => {
+      let changed = false
+      const nextNotes = (current.notesByTrack[selectedTrack.id] ?? []).map((note) => {
+        if (note.id !== noteId) return note
+
+        const nextNote = {
+          ...note,
+          ...updates,
+          durationBeats: Math.max(MIN_DURATION_BEATS, updates.durationBeats ?? note.durationBeats),
+          pitch: Math.max(0, Math.min(127, Math.round(updates.pitch ?? note.pitch))),
+          startBeat: Math.max(0, updates.startBeat ?? note.startBeat),
+        }
+
+        if (
+          note.pitch !== nextNote.pitch ||
+          !nearlyEqual(note.startBeat, nextNote.startBeat) ||
+          !nearlyEqual(note.durationBeats, nextNote.durationBeats) ||
+          !nearlyEqual(note.velocity, nextNote.velocity)
+        ) {
+          changed = true
+          return nextNote
+        }
+
+        return note
+      })
+
+      return changed
+        ? {
+            ...current,
+            selectedNoteId: noteId,
+            notesByTrack: {
+              ...current.notesByTrack,
+              [selectedTrack.id]: nextNotes,
+            },
+          }
+        : current
+    })
   }
 
   function resizeNote(noteId: string, durationBeats: number) {
@@ -1799,7 +2341,7 @@ function App() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${project.title || 'beginner-music'}.beginner-music.json`
+    link.download = `${project.title || 'beginner-music'}.json`
     link.click()
     URL.revokeObjectURL(url)
     setFileMenuOpen(false)
@@ -1815,6 +2357,26 @@ function App() {
     link.click()
     URL.revokeObjectURL(url)
     setFileMenuOpen(false)
+  }
+
+  async function saveMp3File() {
+    if (isExportingMp3) return
+
+    setIsExportingMp3(true)
+    setFileMenuOpen(false)
+    try {
+      const blob = await exportMp3Project(projectRef.current)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${projectRef.current.title || 'beginner-music'}.mp3`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('MP3 파일을 만들지 못했습니다. 음표가 너무 많거나 브라우저 오디오 렌더링이 실패했을 수 있습니다.')
+    } finally {
+      setIsExportingMp3(false)
+    }
   }
 
   function getAutoMixTarget(track: Track) {
@@ -1877,7 +2439,7 @@ function App() {
         if (isMidi) {
           const buffer = reader.result
           if (!(buffer instanceof ArrayBuffer)) throw new Error('Invalid MIDI data')
-          setProject(normalizeProject(importMidiProject(buffer)))
+          setProject(normalizeProject(importMidiProject(buffer, file.name.replace(/\.[^.]+$/, ''))))
         } else {
           const nextProject = normalizeProject(JSON.parse(String(reader.result)) as Project)
           setProject(nextProject)
@@ -1967,8 +2529,15 @@ function App() {
     seekPlayback((x / rect.width) * totalBeats)
   }
 
-  function zoomRoll(direction: -1 | 1) {
-    setRollZoom((current) => getNextZoom(current, direction))
+  function changeTempoFromGraph(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height)
+    const ratio = 1 - y / rect.height
+    const nextTempo = Math.round(TEMPO_GRAPH_MIN + ratio * (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN))
+    updateTempo(nextTempo)
   }
 
   function disposePlaybackVoices() {
@@ -1987,7 +2556,7 @@ function App() {
   }
 
   function schedulePlaybackNote(
-    instrument: PlaybackInstrument,
+    track: ActivePlaybackTrack,
     note: Note,
     currentBeat: number,
     sessionId: number,
@@ -2001,10 +2570,22 @@ function App() {
     const startTimeoutId = window.setTimeout(() => {
       if (sessionId !== playbackSessionRef.current) return
 
-      instrument.triggerAttack(frequency, Tone.now(), note.velocity)
+      const activeCount = track.activeFrequencies.get(frequency) ?? 0
+      track.activeFrequencies.set(frequency, activeCount + 1)
+      if (activeCount === 0) {
+        track.instrument.triggerAttack(frequency, Tone.now(), note.velocity)
+      }
+
       const releaseTimeoutId = window.setTimeout(() => {
         if (sessionId !== playbackSessionRef.current) return
-        instrument.triggerRelease(frequency, Tone.now())
+        const nextActiveCount = (track.activeFrequencies.get(frequency) ?? 1) - 1
+        if (nextActiveCount > 0) {
+          track.activeFrequencies.set(frequency, nextActiveCount)
+          return
+        }
+
+        track.activeFrequencies.delete(frequency)
+        track.instrument.triggerRelease(frequency, Tone.now())
       }, Math.ceil(remainingDurationSeconds * 1000))
       activeTimeoutsRef.current.push(releaseTimeoutId)
     }, Math.ceil(delayMs))
@@ -2033,7 +2614,7 @@ function App() {
       if (notesToSchedule.length === 0) return
 
       notesToSchedule.forEach((note) => {
-        schedulePlaybackNote(track.instrument, note, currentBeat, sessionId)
+        schedulePlaybackNote(track, note, currentBeat, sessionId)
       })
     })
   }
@@ -2076,7 +2657,8 @@ function App() {
       const notes = (currentProject.notesByTrack[track.id] ?? [])
         .map((note) => ({
           ...note,
-          velocity: note.velocity * track.volume,
+          pitch: note.pitch + (note.pitchBend ?? 0),
+          velocity: note.velocity * (note.volume ?? 1) * (note.expression ?? 1) * track.volume,
         }))
         .sort((left, right) => left.startBeat - right.startBeat)
 
@@ -2085,6 +2667,7 @@ function App() {
       const instrument = createInstrument(track.instrumentId)
       activeInstrumentsRef.current.push(instrument)
       activePlaybackTracksRef.current.push({
+        activeFrequencies: new Map(),
         id: track.id,
         instrument,
         notes,
@@ -2165,13 +2748,16 @@ function App() {
                 setFileMenuOpen((current) => !current)
               }}
             >
-              File⌄
+              <span>File</span><span className="menu-chevron">⌄</span>
             </button>
             {fileMenuOpen ? (
               <div className="file-menu">
                 <button type="button" onPointerDown={createNewProject}>New</button>
                 <button type="button" onPointerDown={openProjectFile}>Open MIDI / Project</button>
                 <button type="button" onPointerDown={saveProjectFile}>Save Project</button>
+                <button type="button" disabled={isExportingMp3} onPointerDown={saveMp3File}>
+                  {isExportingMp3 ? 'Exporting MP3...' : 'Save MP3'}
+                </button>
                 <button type="button" onPointerDown={saveMidiFile}>Save MIDI</button>
               </div>
             ) : null}
@@ -2185,7 +2771,7 @@ function App() {
                 setEditMenuOpen((current) => !current)
               }}
             >
-              Edit⌄
+              <span>Edit</span><span className="menu-chevron">⌄</span>
             </button>
             {editMenuOpen ? (
               <div className="file-menu">
@@ -2210,9 +2796,27 @@ function App() {
               </div>
             ) : null}
           </div>
-          <button type="button" className="is-active">▥ Piano Roll</button>
-          <button type="button" className="future-button" title="추후 편곡 화면으로 연결 예정">▤ Arrange</button>
-          <button type="button" className="future-button" title="추후 템포 상세 편집으로 연결 예정">◷ Tempo</button>
+          <button
+            type="button"
+            className={activeEditorTab === 'piano-roll' ? 'is-active' : ''}
+            onPointerDown={() => setActiveEditorTab('piano-roll')}
+          >
+            ▥ Piano Roll
+          </button>
+          <button
+            type="button"
+            className={activeEditorTab === 'arrange' ? 'is-active' : ''}
+            onPointerDown={() => setActiveEditorTab('arrange')}
+          >
+            ▤ Arrange
+          </button>
+          <button
+            type="button"
+            className={activeEditorTab === 'tempo' ? 'is-active' : ''}
+            onPointerDown={() => setActiveEditorTab('tempo')}
+          >
+            ◷ Tempo
+          </button>
         </nav>
 
         <input
@@ -2223,7 +2827,6 @@ function App() {
         />
 
         <nav className="top-actions" aria-label="상단 작업">
-          <button type="button" onPointerDown={autoMixTracks}>Auto Mix</button>
           <button type="button" className="future-button" title="추후 설정 화면으로 연결 예정">Settings</button>
           <button type="button" className="future-button" title="추후 도움말로 연결 예정">Help</button>
           <button type="button" className="future-button" title="추후 로그인으로 연결 예정">Sign In</button>
@@ -2442,14 +3045,14 @@ function App() {
       ) : null}
 
       <main className="editor-shell">
-        <aside className="track-panel" aria-label="트랙 목록">
+        <aside className="track-panel" aria-label="트랙 목록" onContextMenu={openTrackPanelContextMenu}>
           <div className="track-toolbar">
             <button type="button" className="back-button">‹</button>
             <strong>{selectedTrack?.name ?? 'Track 1'}</strong>
             <button type="button" className="menu-button">☰</button>
           </div>
 
-          <div className="track-list">
+          <div className="track-list" onContextMenu={openTrackPanelContextMenu}>
             {project.tracks.map((track, index) => (
               <article
                 className={track.id === project.selectedTrackId ? 'track-item is-selected' : 'track-item'}
@@ -2510,16 +3113,29 @@ function App() {
                   >
                     ◆
                   </button>
-                  <span>CH {index + 1}</span>
+                  <select
+                    aria-label="채널"
+                    value={track.channel ?? index + 1}
+                    onChange={(event) => updateTrack(track.id, { channel: Number(event.target.value) })}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    {Array.from({ length: 16 }, (_, channelIndex) => (
+                      <option key={channelIndex + 1} value={channelIndex + 1}>
+                        CH {channelIndex + 1}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </article>
             ))}
+            <button type="button" className="add-track-button" onPointerDown={addTrack}>＋ Add Track</button>
+            <button type="button" className="automix-track-button" onPointerDown={autoMixTracks}>AutoMix</button>
           </div>
-
-          <button type="button" className="add-track-button" onPointerDown={addTrack}>＋ Add Track</button>
         </aside>
 
         <section className="piano-roll-area" aria-label="피아노 롤">
+          {activeEditorTab === 'piano-roll' ? (
+            <>
           <div className="roll-header">
             <button
               type="button"
@@ -2566,7 +3182,23 @@ function App() {
               >
                 ▣
               </button>
+              <button
+                type="button"
+                className={toolMode === 'lasso' ? 'is-active' : ''}
+                onPointerDown={() => changeToolMode('lasso')}
+                title="자유 선택"
+              >
+                ⌁
+              </button>
               <button type="button" className="future-button" title="추후 음표 도구">♪</button>
+              <button
+                type="button"
+                className={keyboardInputEnabled ? 'is-active' : ''}
+                onPointerDown={() => setKeyboardInputEnabled((current) => !current)}
+                title="재생 중 A W S E D... 키로 실시간 입력"
+              >
+                Keys
+              </button>
               <div className="division-buttons" aria-label="음표 단위">
                 {NOTE_DIVISIONS.map((division) => (
                   <button
@@ -2585,25 +3217,6 @@ function App() {
                     <small>{division}</small>
                   </button>
                 ))}
-              </div>
-              <div className="roll-zoom-controls" aria-label="피아노 롤 확대 축소">
-                <button
-                  type="button"
-                  disabled={rollZoom === ROLL_ZOOM_LEVELS[0]}
-                  onPointerDown={() => zoomRoll(-1)}
-                  title="피아노 롤 축소"
-                >
-                  −
-                </button>
-                <span>{Math.round(rollZoom * 100)}%</span>
-                <button
-                  type="button"
-                  disabled={rollZoom === ROLL_ZOOM_LEVELS[ROLL_ZOOM_LEVELS.length - 1]}
-                  onPointerDown={() => zoomRoll(1)}
-                  title="피아노 롤 확대"
-                >
-                  ＋
-                </button>
               </div>
               <span>{visibleBars}</span>
             </div>
@@ -2641,11 +3254,26 @@ function App() {
                   top: `${selectionBox.top}px`,
                   width: `${selectionBox.width}px`,
                 }}
-                aria-hidden="true"
-              />
+                onPointerDown={beginSelectionBoxMove}
+                aria-label="선택 영역 이동"
+              >
+                <span
+                  className="pattern-repeat-handle"
+                  onPointerDown={beginPatternRepeat}
+                  title="오른쪽으로 늘려 패턴 반복"
+                />
+              </span>
             ) : null}
 
-            {PITCHES.map((pitch) => (
+            {lassoPoints.length > 1 ? (
+              <svg className="lasso-overlay" aria-hidden="true">
+                <polyline
+                  points={lassoPoints.map((point) => `${point.viewX},${point.viewY}`).join(' ')}
+                />
+              </svg>
+            ) : null}
+
+            {rollPitches.map((pitch) => (
               <div className="roll-row" key={pitch}>
                 <button
                   type="button"
@@ -2657,7 +3285,7 @@ function App() {
                   }}
                   onPointerEnter={() => continueKeyPreview(pitch)}
                 >
-                  {getPitchName(pitch)}
+                  {getRowLabel(pitch)}
                 </button>
                 <div
                   className="step-row"
@@ -2703,10 +3331,11 @@ function App() {
                             beginRightEraseNote(note, event)
                           }}
                           onContextMenu={(event) => {
-                            openPianoRollContextMenu(event)
+                            event.preventDefault()
                           }}
                           aria-label={`${getPitchName(note.pitch)} 음표`}
                         >
+                          <span className="note-label">{getPitchName(note.pitch)}</span>
                           <span
                             className="resize-handle"
                             onPointerDown={(event) => startResizingNote(note, event)}
@@ -2719,14 +3348,94 @@ function App() {
               </div>
             ))}
           </div>
+            </>
+          ) : activeEditorTab === 'arrange' ? (
+            <div className="arrange-view" aria-label="편곡 배치" style={rollSurfaceStyle}>
+              <header>
+                <strong>Arrange</strong>
+                <span>트랙별로 전체 멜로디 배치를 확인합니다.</span>
+              </header>
+              <div className="arrange-timeline">
+                {Array.from({ length: visibleBars }, (_, bar) => (
+                  <span key={bar}>{bar + 1}</span>
+                ))}
+              </div>
+              <div className="arrange-lanes">
+                {project.tracks.map((track, index) => {
+                  const notes = project.notesByTrack[track.id] ?? []
+                  return (
+                    <div className="arrange-lane" key={track.id}>
+                      <button
+                        type="button"
+                        className={track.id === project.selectedTrackId ? 'is-active' : ''}
+                        onPointerDown={() => selectTrack(track.id)}
+                      >
+                        <img alt="" draggable={false} src={getInstrumentImage(track.instrumentId)} />
+                        <span>Track {index + 1}</span>
+                      </button>
+                      <div className="arrange-lane-grid">
+                        {notes.map((note) => (
+                          <span
+                            className="arrange-note"
+                            key={note.id}
+                            style={{
+                              left: `${(note.startBeat / totalBeats) * 100}%`,
+                              width: `${(note.durationBeats / totalBeats) * 100}%`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="tempo-view" aria-label="템포 편집" style={rollSurfaceStyle}>
+              <header>
+                <strong>Tempo</strong>
+                <span>그래프를 클릭해서 현재 프로젝트 BPM을 조절합니다.</span>
+              </header>
+              <div className="tempo-graph" onPointerDown={changeTempoFromGraph}>
+                <span className="tempo-graph-min">{TEMPO_GRAPH_MIN}</span>
+                <span className="tempo-graph-max">{TEMPO_GRAPH_MAX}</span>
+                <span
+                  className="tempo-graph-fill"
+                  style={{ height: `${tempoGraphPercent}%` }}
+                />
+                <span
+                  className="tempo-graph-handle"
+                  style={{ bottom: `${tempoGraphPercent}%` }}
+                >
+                  {project.tempo} BPM
+                </span>
+              </div>
+              <div className="tempo-view-controls">
+                <button type="button" onPointerDown={() => updateTempo(project.tempo - 1)}>−</button>
+                <input
+                  aria-label="BPM"
+                  inputMode="numeric"
+                  type="text"
+                  value={tempoInput}
+                  onBlur={commitTempoInput}
+                  onChange={(event) => changeTempoInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                  }}
+                />
+                <button type="button" onPointerDown={() => updateTempo(project.tempo + 1)}>＋</button>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="detail-panel" aria-label="세부 편집">
           <div className="detail-tabs" aria-label="편집 탭">
-            {TERMINOLOGY_HELP.map((item, index) => (
+            {TERMINOLOGY_HELP.map((item) => (
               <button
-                className={index === 0 ? 'is-active' : 'future-button'}
+                className={activeDetailTerm === item.term ? 'is-active' : ''}
                 key={item.term}
+                onPointerDown={() => setActiveDetailTerm(item.term)}
                 title={`${item.label}: ${item.description}`}
                 type="button"
               >
@@ -2737,14 +3446,6 @@ function App() {
           </div>
 
           <div className="velocity-lane">
-            <div className="terminology-strip" aria-label="용어 설명">
-              {TERMINOLOGY_HELP.map((item) => (
-                <article key={item.term}>
-                  <strong>{item.label}</strong>
-                  <span>{item.description}</span>
-                </article>
-              ))}
-            </div>
             <div className="tempo-panel" aria-label="템포 설정">
               <label>
                 <span>BPM</span>
@@ -2776,44 +3477,142 @@ function App() {
                 </select>
                 <button type="button" onPointerDown={() => updateTempo(project.tempo + 5)}>＋</button>
               </label>
+            </div>
+
+            <div className="note-control-panel">
+              <strong>
+                {editableSelectedNotes.length > 0
+                  ? `${editableSelectedNotes.length}개 음표 편집`
+                  : '음표를 선택하세요'}
+              </strong>
               <label>
-                <span>길이(초)</span>
+                <span>Velocity</span>
                 <input
-                  aria-label="곡 길이 초"
-                  inputMode="numeric"
-                  type="text"
-                  value={lengthSecondsInput}
-                  onBlur={commitLengthSecondsInput}
-                  onChange={(event) => changeLengthSecondsInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.currentTarget.blur()
-                    }
-                  }}
+                  type="range"
+                  min="0.05"
+                  max="1"
+                  step="0.01"
+                  disabled={editableSelectedNotes.length === 0}
+                  value={getSelectedNoteValue('velocity')}
+                  onChange={(event) => updateSelectedNotes({ velocity: Number(event.target.value) })}
                 />
-                <button type="button" onPointerDown={() => updateProjectLengthSeconds(lengthSeconds + 10)}>＋10</button>
+                <em>{Math.round(getSelectedNoteValue('velocity') * 100)}</em>
+              </label>
+              <label>
+                <span>Volume</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  disabled={editableSelectedNotes.length === 0}
+                  value={getSelectedNoteValue('volume')}
+                  onChange={(event) => updateSelectedNotes({ volume: Number(event.target.value) })}
+                />
+                <em>{Math.round(getSelectedNoteValue('volume') * 100)}</em>
+              </label>
+              <label>
+                <span>Pan</span>
+                <input
+                  type="range"
+                  min="-1"
+                  max="1"
+                  step="0.01"
+                  disabled={editableSelectedNotes.length === 0}
+                  value={getSelectedNoteValue('pan')}
+                  onChange={(event) => updateSelectedNotes({ pan: Number(event.target.value) })}
+                />
+                <em>{Math.round(getSelectedNoteValue('pan') * 100)}</em>
+              </label>
+              <label>
+                <span>Pitch Bend</span>
+                <input
+                  type="range"
+                  min="-2"
+                  max="2"
+                  step="0.1"
+                  disabled={editableSelectedNotes.length === 0}
+                  value={getSelectedNoteValue('pitchBend')}
+                  onChange={(event) => updateSelectedNotes({ pitchBend: Number(event.target.value) })}
+                />
+                <em>{getSelectedNoteValue('pitchBend').toFixed(1)}</em>
+              </label>
+              <label>
+                <span>Expression</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  disabled={editableSelectedNotes.length === 0}
+                  value={getSelectedNoteValue('expression')}
+                  onChange={(event) => updateSelectedNotes({ expression: Number(event.target.value) })}
+                />
+                <em>{Math.round(getSelectedNoteValue('expression') * 100)}</em>
+              </label>
+              <label>
+                <span>Modulation</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  disabled={editableSelectedNotes.length === 0}
+                  value={getSelectedNoteValue('modulation')}
+                  onChange={(event) => updateSelectedNotes({ modulation: Number(event.target.value) })}
+                />
+                <em>{Math.round(getSelectedNoteValue('modulation') * 100)}</em>
               </label>
             </div>
 
-            {selectedTrackNotes.map((note) => (
-              <button
-                type="button"
-                className={note.id === project.selectedNoteId ? 'velocity-bar is-selected' : 'velocity-bar'}
-                key={note.id}
-                style={{
-                  left: `${(note.startBeat / totalBeats) * 100}%`,
-                  height: `${Math.max(8, note.velocity * 100)}%`,
-                }}
-                onPointerDown={() =>
-                  setProject((current) =>
-                    current.selectedNoteId === note.id
-                      ? current
-                      : { ...current, selectedNoteId: note.id },
-                  )
-                }
-                aria-label={`${getPitchName(note.pitch)} 소리 세기`}
-              />
-            ))}
+            {activeDetailTerm === 'Event' ? (
+              <div className="event-editor">
+                <strong>Event</strong>
+                {sortedEditableSelectedNotes.length === 0 ? (
+                  <span>편집할 음표를 선택하세요.</span>
+                ) : (
+                  <div className="event-grid">
+                    <span>음</span>
+                    <span>시작</span>
+                    <span>길이</span>
+                    <span>세기</span>
+                    {sortedEditableSelectedNotes.slice(0, 12).map((note) => (
+                      <div className="event-row" key={note.id}>
+                        <input
+                          aria-label="음높이"
+                          type="number"
+                          value={note.pitch}
+                          onChange={(event) => updateNoteEvent(note.id, { pitch: Number(event.target.value) })}
+                        />
+                        <input
+                          aria-label="시작 박자"
+                          step="0.125"
+                          type="number"
+                          value={Number(note.startBeat.toFixed(3))}
+                          onChange={(event) => updateNoteEvent(note.id, { startBeat: snapBeatToGrid(Number(event.target.value)) })}
+                        />
+                        <input
+                          aria-label="길이"
+                          step="0.125"
+                          type="number"
+                          value={Number(note.durationBeats.toFixed(3))}
+                          onChange={(event) => updateNoteEvent(note.id, { durationBeats: snapBeatToGrid(Number(event.target.value)) })}
+                        />
+                        <input
+                          aria-label="소리 세기"
+                          max="1"
+                          min="0.05"
+                          step="0.01"
+                          type="number"
+                          value={Number(note.velocity.toFixed(2))}
+                          onChange={(event) => updateNoteEvent(note.id, { velocity: Number(event.target.value) })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
 
           <div className="transport-bar">
@@ -2827,7 +3626,7 @@ function App() {
               {selectedNote ? `${getPitchName(selectedNote.pitch)} · 세기 ${Math.round(selectedNote.velocity * 100)}` : '음표 선택 없음'}
             </div>
 
-            <button type="button" disabled={!selectedNote} onPointerDown={deleteSelectedNote}>Delete</button>
+            <span />
           </div>
         </section>
       </main>
