@@ -136,7 +136,7 @@ export function exportMidiProject(project: Project) {
   const trackChunks = [
     createMetaTrack(project),
     ...project.tracks.map((track, trackIndex) => {
-      const isDrums = track.instrumentId === 'drums'
+      const isDrums = track.instrumentId === 'drums' || track.instrumentId === 'standard-drums'
       const channel = getTrackChannel(trackIndex, isDrums, track.channel)
       const program = getProgramFromInstrumentId(track.instrumentId) ?? 0
       const trackName = writeText(track.name)
