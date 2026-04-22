@@ -1,7 +1,10 @@
 import { getProgramFromInstrumentId } from './generalMidi'
+import { expandProjectForArrangement } from '../arrangement/trackArrangement'
 import type { Note, Project } from '../../types/music'
 
 const TICKS_PER_BEAT = 480
+const TEMPO_INPUT_MIN = 1
+const TEMPO_INPUT_MAX = 999
 
 type MidiTrackEvent = {
   data: number[]
@@ -68,12 +71,60 @@ function createTrackChunk(events: MidiTrackEvent[]) {
   ]
 }
 
+function clampTempoValue(tempo: number | undefined, fallback: number) {
+  const safeTempo = Number.isFinite(tempo) ? Number(tempo) : fallback
+  return Math.max(TEMPO_INPUT_MIN, Math.min(TEMPO_INPUT_MAX, safeTempo))
+}
+
+function getProjectEndBeat(project: Project) {
+  const noteEndBeat = Object.values(project.notesByTrack).reduce(
+    (latestEnd, notes) => Math.max(latestEnd, ...notes.map((note) => note.startBeat + note.durationBeats), 0),
+    0,
+  )
+  const audioEndBeat = (project.audioClips ?? []).reduce(
+    (latestEnd, clip) => Math.max(latestEnd, clip.startBeat + clip.durationBeats),
+    0,
+  )
+
+  return Math.max(1, noteEndBeat, audioEndBeat)
+}
+
+function getTempoSections(project: Project, totalBeats: number) {
+  return [...(project.tempoSections ?? [])]
+    .map((section) => ({
+      startBeat: Math.max(0, Math.min(totalBeats, section.startBeat ?? 0)),
+      endBeat: Math.max(0.25, Math.min(totalBeats, section.endBeat ?? totalBeats)),
+      tempo: clampTempoValue(section.tempo, project.tempo),
+    }))
+    .filter((section) => section.endBeat > section.startBeat)
+    .sort((left, right) => left.startBeat - right.startBeat)
+}
+
 function createMetaTrack(project: Project) {
-  const tempo = Math.max(1, project.tempo || 120)
-  const microsecondsPerBeat = Math.round(60_000_000 / tempo)
   const titleBytes = writeText(project.title || 'BeginnerMusic')
   const [numerator, denominator] = project.timeSignature ?? [4, 4]
   const denominatorPower = Math.max(0, Math.round(Math.log2(denominator || 4)))
+  const totalBeats = getProjectEndBeat(project)
+  const tempoEvents = getTempoSections(project, totalBeats)
+    .filter((section) => section.startBeat > 0)
+    .map((section, index) => {
+    const microsecondsPerBeat = Math.round(60_000_000 / Math.max(1, section.tempo))
+    const tick = Math.max(0, Math.round(section.startBeat * TICKS_PER_BEAT))
+    return {
+      tick,
+      order: 10 + index,
+      data: [
+        0xff,
+        0x51,
+        0x03,
+        (microsecondsPerBeat >> 16) & 0xff,
+        (microsecondsPerBeat >> 8) & 0xff,
+        microsecondsPerBeat & 0xff,
+      ],
+    }
+    })
+  const initialTempo = clampTempoValue(project.tempo || 120, 120)
+  const initialMicrosecondsPerBeat = Math.round(60_000_000 / Math.max(1, initialTempo))
 
   return createTrackChunk([
     { tick: 0, order: 0, data: [0xff, 0x03, titleBytes.length, ...titleBytes] },
@@ -84,12 +135,13 @@ function createMetaTrack(project: Project) {
         0xff,
         0x51,
         0x03,
-        (microsecondsPerBeat >> 16) & 0xff,
-        (microsecondsPerBeat >> 8) & 0xff,
-        microsecondsPerBeat & 0xff,
+        (initialMicrosecondsPerBeat >> 16) & 0xff,
+        (initialMicrosecondsPerBeat >> 8) & 0xff,
+        initialMicrosecondsPerBeat & 0xff,
       ],
     },
     { tick: 0, order: 2, data: [0xff, 0x58, 0x04, numerator, denominatorPower, 24, 8] },
+    ...tempoEvents,
   ])
 }
 
@@ -133,14 +185,15 @@ function noteToEvents(note: Note, channel: number): MidiTrackEvent[] {
 }
 
 export function exportMidiProject(project: Project) {
+  const arrangedProject = expandProjectForArrangement(project)
   const trackChunks = [
-    createMetaTrack(project),
-    ...project.tracks.map((track, trackIndex) => {
+    createMetaTrack(arrangedProject),
+    ...arrangedProject.tracks.map((track, trackIndex) => {
       const isDrums = track.instrumentId === 'drums' || track.instrumentId === 'standard-drums'
       const channel = getTrackChannel(trackIndex, isDrums, track.channel)
       const program = getProgramFromInstrumentId(track.instrumentId) ?? 0
       const trackName = writeText(track.name)
-      const notes = project.notesByTrack[track.id] ?? []
+      const notes = arrangedProject.notesByTrack[track.id] ?? []
       const events: MidiTrackEvent[] = [
         { tick: 0, order: 0, data: [0xff, 0x03, trackName.length, ...trackName] },
       ]

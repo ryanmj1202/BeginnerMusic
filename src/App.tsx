@@ -13,6 +13,7 @@
 import './App.css'
 import * as Tone from 'tone'
 import { exportMp3Project } from './lib/audio/exportMp3'
+import { expandProjectForArrangement, getTrackPlacements, getTrackSourceEndBeat } from './lib/arrangement/trackArrangement'
 import {
   changePreviewNote,
   createInstrument,
@@ -21,7 +22,10 @@ import {
   getInstrumentPreviewPitch,
   isDrumInstrument,
   previewNote,
+  silenceAllAudioOutput,
   startPreviewNote,
+  stopAllPreviewAudio,
+  stopPreviewNoteImmediately,
   stopPreviewNote,
   waitForInstrumentReady,
   type HeldPreview,
@@ -34,7 +38,7 @@ import {
 } from './lib/midi/generalMidi'
 import { exportMidiProject } from './lib/midi/exportMidi'
 import { importMidiProject } from './lib/midi/importMidi'
-import type { AudioClip, AutoMixSection, InstrumentId, Note, Project, Track } from './types/music'
+import type { AudioClip, AutoMixSection, InstrumentId, Note, PatternPlacement, Project, TempoSection, Track } from './types/music'
 
 const STORAGE_KEY = 'beginner-music-project-v1'
 const DEFAULT_BARS = 8
@@ -50,8 +54,11 @@ const FLOAT_EPSILON = 0.0001
 const PLAYBACK_SCHEDULER_MS = 80
 const PLAYBACK_LOOKAHEAD_BEATS = 0.32
 const TEMPO_PRESETS = [60, 72, 80, 90, 100, 110, 120, 128, 140, 160, 180, 200]
+const TEMPO_INPUT_MIN = 1
+const TEMPO_INPUT_MAX = 999
 const TEMPO_GRAPH_MIN = 40
 const TEMPO_GRAPH_MAX = 220
+const TEMPO_SECTION_DEFAULT_BARS = 4
 const PLAYHEAD_SCROLL_PADDING = 160
 const NOTE_DIVISIONS = [8, 16, 32, 64, 128] as const
 const ROLL_ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const
@@ -179,8 +186,8 @@ const DRUM_LABELS: Record<number, string> = {
   87: '수르도 울리기',
 }
 const DRUM_INSTRUMENTS = [
-  { family: 'Drums', icon: '◉', id: 'drums', label: 'Power Drum Kit', program: -1 },
-  { family: 'Drums', icon: '○', id: 'standard-drums', label: 'Standard Drum Kit', program: -1 },
+  { family: 'Drums', icon: '◉', id: 'drums', label: '파워 드럼 키트', program: -1 },
+  { family: 'Drums', icon: '○', id: 'standard-drums', label: '스탠다드 드럼 키트', program: -1 },
 ]
 const INSTRUMENT_OPTIONS = [...DRUM_INSTRUMENTS, ...GENERAL_MIDI_INSTRUMENTS]
 const INSTRUMENT_CATEGORY_ORDER = [
@@ -241,6 +248,14 @@ const INSTRUMENT_CATEGORY_IMAGES: Record<string, InstrumentId> = {
   Drums: 'drums',
 }
 const TRACK_COLORS = ['#5365d9', '#21a67a', '#d69b32', '#c95c8c', '#6a78f0', '#9b6bd3']
+const AUTO_MIX_GENRE_PRESETS = [
+  { id: 'default', label: '기본 균형' },
+  { id: 'ballad', label: '발라드' },
+  { id: 'rock', label: '록 밴드' },
+  { id: 'hiphop', label: '힙합' },
+  { id: 'edm', label: 'EDM' },
+  { id: 'orchestra', label: '오케스트라' },
+] as const
 const TERMINOLOGY_HELP = [
   {
     term: '소리 세기',
@@ -284,6 +299,7 @@ type EditorTab = 'piano-roll' | 'arrange' | 'tempo' | 'automix'
 type ToolMode = 'draw' | 'erase' | 'select' | 'lasso'
 type NoteDivision = (typeof NOTE_DIVISIONS)[number]
 type RollZoom = (typeof ROLL_ZOOM_LEVELS)[number]
+type AutoMixGenrePreset = (typeof AUTO_MIX_GENRE_PRESETS)[number]['id']
 
 type NoteDrag = {
   active: boolean
@@ -291,7 +307,7 @@ type NoteDrag = {
   grabStepOffset: number
   groupNoteIds: string[]
   noteId: string
-  originalNotes: Note[]
+  originalNotes: TrackNote[]
   originPitch: number
   originStep: number
   trackId: string
@@ -329,10 +345,9 @@ type PatternRepeatDrag = {
   baseWidth: number
   currentWidth: number
   gapBeats: number
-  notes: Note[]
+  notes: TrackNote[]
   repeatCount: number
   startClientX: number
-  trackId: string
 }
 
 type KeyboardRecordingNote = {
@@ -370,6 +385,14 @@ type PatternClipboard = {
   nextPasteBeat: number
 }
 
+type TrackPlacementDrag = {
+  placementId: string
+  startBeat: number
+  startClientX: number
+  startSpanBeats: number
+  type: 'move' | 'resize'
+}
+
 type RollPointerGeometry = {
   gridWidth: number
   rect: DOMRect
@@ -392,6 +415,12 @@ type ActivePlaybackTrack = {
 }
 
 type OtherNote = Note & { trackId: string }
+type TrackNote = Note & { trackId: string }
+type TempoTimelineSegment = {
+  startBeat: number
+  endBeat: number
+  tempo: number
+}
 
 type AutoMixReportItem = {
   afterPan: number
@@ -410,15 +439,18 @@ type OtherNotesByPitchCache = {
 }
 
 type InteractionHandlers = {
+  addAutoMixSection: () => void
   copySelectedNotes: () => void
   cutSelectedNotes: () => void
   deleteSelectedNote: () => void
   eraseDraggedCellFromPointer: (clientX: number, clientY: number) => void
   eraseRightDraggedCellFromPointer: (clientX: number, clientY: number) => void
+  finishLassoSelection: () => void
   finishPatternSelection: () => void
   finishPatternRepeat: () => void
   finishKeyboardNote: (code: string, eventTimeStamp?: number) => void
   startKeyboardNote: (code: string, eventTimeStamp?: number) => void
+  transposeSelectedNotes: (direction: -1 | 1) => void
   updatePatternRepeatPreview: (clientX: number) => void
   updateLassoSelectionFromPointer: (clientX: number, clientY: number) => void
   zoomRoll: (direction: -1 | 1) => void
@@ -471,6 +503,8 @@ function createInitialProject(): Project {
     },
     audioClips: [],
     autoMixSections: [],
+    tempoSections: [],
+    patternPlacements: [],
   }
 }
 
@@ -524,12 +558,25 @@ function normalizeProject(project: Project): Project {
       ...clip,
       waveform: clip.waveform ?? [],
     })),
+    patternPlacements: (project.patternPlacements ?? []).filter((placement) =>
+      tracks.some((track) => track.id === placement.trackId),
+    ).map((placement) => ({
+      ...placement,
+      spanBeats: Math.max(MIN_DURATION_BEATS, placement.spanBeats ?? DEFAULT_PROJECT_LENGTH_BEATS),
+      startBeat: Math.max(0, placement.startBeat ?? 0),
+    })),
     autoMixSections: (project.autoMixSections ?? []).map((section) => ({
       ...section,
       intensity: Math.min(1, Math.max(0, section.intensity ?? 0.7)),
       priorities: section.priorities ?? {},
       startBeat: Math.max(0, section.startBeat ?? 0),
       endBeat: Math.max(section.startBeat ?? 0, section.endBeat ?? DEFAULT_PROJECT_LENGTH_BEATS),
+    })),
+    tempoSections: (project.tempoSections ?? []).map((section) => ({
+      ...section,
+      startBeat: Math.max(0, section.startBeat ?? 0),
+      endBeat: Math.max(section.startBeat ?? 0.25, section.endBeat ?? DEFAULT_PROJECT_LENGTH_BEATS),
+      tempo: clampTempoValue(section.tempo, project.tempo || 120),
     })),
   }
 }
@@ -562,8 +609,146 @@ function getNotesEndBeat(notesByTrack: Project['notesByTrack']) {
     .reduce((endBeat, notes) => Math.max(endBeat, getTrackEndBeat(notes)), 0)
 }
 
+function clampTempoValue(tempo: number | undefined, fallback: number) {
+  const safeTempo = Number.isFinite(tempo) ? Number(tempo) : fallback
+  return Math.max(TEMPO_INPUT_MIN, Math.min(TEMPO_INPUT_MAX, safeTempo))
+}
+
+function getNormalizedTempoSections(project: Project, totalBeats: number) {
+  return [...(project.tempoSections ?? [])]
+    .map((section) => ({
+      ...section,
+      startBeat: Math.max(0, Math.min(totalBeats, section.startBeat ?? 0)),
+      endBeat: Math.max(0.25, Math.min(totalBeats, section.endBeat ?? totalBeats)),
+      tempo: clampTempoValue(section.tempo, project.tempo),
+    }))
+    .filter((section) => section.endBeat > section.startBeat)
+    .sort((left, right) => left.startBeat - right.startBeat)
+}
+
+function buildTempoTimeline(project: Project, totalBeats: number) {
+  const safeTotalBeats = Math.max(1, totalBeats)
+  const sections = getNormalizedTempoSections(project, safeTotalBeats)
+  const segments: TempoTimelineSegment[] = []
+  let cursor = 0
+
+  sections.forEach((section) => {
+    const startBeat = Math.max(cursor, section.startBeat)
+    const endBeat = Math.max(startBeat + 0.25, Math.min(safeTotalBeats, section.endBeat))
+
+    if (startBeat > cursor) {
+      segments.push({
+        startBeat: cursor,
+        endBeat: startBeat,
+        tempo: clampTempoValue(project.tempo, 120),
+      })
+    }
+
+    segments.push({
+      startBeat,
+      endBeat,
+      tempo: clampTempoValue(section.tempo, project.tempo),
+    })
+    cursor = endBeat
+  })
+
+  if (cursor < safeTotalBeats) {
+    segments.push({
+      startBeat: cursor,
+      endBeat: safeTotalBeats,
+      tempo: clampTempoValue(project.tempo, 120),
+    })
+  }
+
+  if (segments.length === 0) {
+    segments.push({
+      startBeat: 0,
+      endBeat: safeTotalBeats,
+      tempo: clampTempoValue(project.tempo, 120),
+    })
+  }
+
+  return segments
+}
+
+function getTempoAtBeat(project: Project, beat: number, totalBeats: number) {
+  const timeline = buildTempoTimeline(project, totalBeats)
+  const matched = timeline.find((segment) => beat >= segment.startBeat && beat < segment.endBeat)
+  return matched?.tempo ?? timeline[timeline.length - 1]?.tempo ?? clampTempoValue(project.tempo, 120)
+}
+
+function getSecondsBetweenBeats(project: Project, startBeat: number, endBeat: number, totalBeats: number) {
+  const timeline = buildTempoTimeline(project, totalBeats)
+  const safeStartBeat = Math.max(0, startBeat)
+  const safeEndBeat = Math.max(safeStartBeat, endBeat)
+  let seconds = 0
+
+  timeline.forEach((segment) => {
+    const overlapStart = Math.max(segment.startBeat, safeStartBeat)
+    const overlapEnd = Math.min(segment.endBeat, safeEndBeat)
+    if (overlapEnd <= overlapStart) return
+    seconds += ((overlapEnd - overlapStart) * 60) / segment.tempo
+  })
+
+  return seconds
+}
+
+function getSecondsAtBeat(project: Project, beat: number, totalBeats: number) {
+  return getSecondsBetweenBeats(project, 0, beat, totalBeats)
+}
+
+function getBeatAtSeconds(project: Project, seconds: number, totalBeats: number) {
+  const timeline = buildTempoTimeline(project, totalBeats)
+  const safeSeconds = Math.max(0, seconds)
+  let elapsedSeconds = 0
+
+  for (const segment of timeline) {
+    const segmentSeconds = ((segment.endBeat - segment.startBeat) * 60) / segment.tempo
+    if (safeSeconds <= elapsedSeconds + segmentSeconds) {
+      return Math.min(
+        totalBeats,
+        segment.startBeat + ((safeSeconds - elapsedSeconds) * segment.tempo) / 60,
+      )
+    }
+    elapsedSeconds += segmentSeconds
+  }
+
+  return totalBeats
+}
+
 function nearlyEqual(left: number, right: number) {
   return Math.abs(left - right) < FLOAT_EPSILON
+}
+
+function getGroupedPitchStep(notes: Array<Pick<Note, 'pitch'>>) {
+  if (notes.length <= 1) return 1
+
+  const sortedPitches = [...new Set(notes.map((note) => note.pitch))].sort((left, right) => left - right)
+  if (sortedPitches.length <= 1) return 1
+
+  const totalGap = sortedPitches.slice(1).reduce((sum, pitch, index) => {
+    return sum + Math.abs(pitch - sortedPitches[index])
+  }, 0)
+  const averageGap = totalGap / (sortedPitches.length - 1)
+  return Math.max(1, Math.min(12, Math.round(averageGap)))
+}
+
+function hasUndoableProjectChange(current: Project, next: Project) {
+  return (
+    current.id !== next.id ||
+    current.title !== next.title ||
+    current.tempo !== next.tempo ||
+    current.timeSignature[0] !== next.timeSignature[0] ||
+    current.timeSignature[1] !== next.timeSignature[1] ||
+    current.lengthBeats !== next.lengthBeats ||
+    current.theme !== next.theme ||
+    current.tracks !== next.tracks ||
+    current.notesByTrack !== next.notesByTrack ||
+    current.audioClips !== next.audioClips ||
+    current.autoMixSections !== next.autoMixSections ||
+    current.tempoSections !== next.tempoSections ||
+    current.patternPlacements !== next.patternPlacements
+  )
 }
 
 function getVisibleBars(endBeat: number) {
@@ -617,8 +802,14 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackBeat, setPlaybackBeat] = useState(0)
   const [autoMixPanelOpen, setAutoMixPanelOpen] = useState(false)
+  const [autoMixGenrePreset, setAutoMixGenrePreset] = useState<AutoMixGenrePreset>('default')
+  const [selectedAutoMixSectionId, setSelectedAutoMixSectionId] = useState<string | null>(null)
+  const [selectedTempoSectionId, setSelectedTempoSectionId] = useState<string | null>(null)
+  const [selectedTrackPlacementId, setSelectedTrackPlacementId] = useState<string | null>(null)
   const [activeEditorTab, setActiveEditorTab] = useState<EditorTab>('piano-roll')
   const [toolMode, setToolMode] = useState<ToolMode>('draw')
+  const [allTrackMelodyMode, setAllTrackMelodyMode] = useState(false)
+  const [, setHistoryVersion] = useState(0)
   const [pressedPitch, setPressedPitch] = useState<number | null>(null)
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
@@ -639,6 +830,8 @@ function App() {
   const projectRef = useRef(project)
   const undoStackRef = useRef<Project[]>([])
   const redoStackRef = useRef<Project[]>([])
+  const historyBatchDepthRef = useRef(0)
+  const historyBatchStartRef = useRef<Project | null>(null)
   const savedProjectJsonRef = useRef('')
   const activeInstrumentsRef = useRef<PlaybackInstrument[]>([])
   const activePlaybackTracksRef = useRef<ActivePlaybackTrack[]>([])
@@ -655,11 +848,14 @@ function App() {
   const playbackStartBeatRef = useRef(0)
   const playbackBeatRef = useRef(0)
   const totalBeatsRef = useRef(0)
+  const activeEditorTabRef = useRef<EditorTab>('piano-roll')
+  const autoMixPanelOpenRef = useRef(false)
   const heldPreviewRef = useRef<HeldPreview | null>(null)
   const previewTokenRef = useRef(0)
   const lastNoteDurationRef = useRef(MIN_DURATION_BEATS * 2)
   const noteDragRef = useRef<NoteDrag | null>(null)
   const patternClipboardRef = useRef<PatternClipboard | null>(null)
+  const trackPlacementDragRef = useRef<TrackPlacementDrag | null>(null)
   const patternRepeatRef = useRef<PatternRepeatDrag | null>(null)
   const patternSelectionRef = useRef<PatternSelection | null>(null)
   const lassoSelectionRef = useRef<{ active: boolean; points: LassoPoint[] }>({ active: false, points: [] })
@@ -674,15 +870,18 @@ function App() {
   const pointerMoveFrameRef = useRef(0)
   const otherNotesByPitchCacheRef = useRef<OtherNotesByPitchCache | null>(null)
   const interactionHandlersRef = useRef<InteractionHandlers>({
+    addAutoMixSection: () => {},
     copySelectedNotes: () => {},
     cutSelectedNotes: () => {},
     deleteSelectedNote: () => {},
     eraseDraggedCellFromPointer: () => {},
     eraseRightDraggedCellFromPointer: () => {},
+    finishLassoSelection: () => {},
     finishPatternSelection: () => {},
     finishPatternRepeat: () => {},
     finishKeyboardNote: () => {},
     startKeyboardNote: () => {},
+    transposeSelectedNotes: () => {},
     updatePatternRepeatPreview: () => {},
     updateLassoSelectionFromPointer: () => {},
     zoomRoll: () => {},
@@ -708,16 +907,25 @@ function App() {
     () => (selectedTrack ? (project.audioClips ?? []).filter((clip) => clip.trackId === selectedTrack.id) : []),
     [project.audioClips, selectedTrack],
   )
-  const selectedAudioClip = selectedAudioClips[0] ?? null
   const selectedTrackIsAudio = selectedTrack?.kind === 'audio' || selectedTrack?.instrumentId === 'audio-track'
+  const allTrackNotes = useMemo(
+    () => project.tracks.flatMap((track) => (
+      (project.notesByTrack[track.id] ?? []).map((note) => ({ ...note, trackId: track.id }))
+    )),
+    [project.notesByTrack, project.tracks],
+  )
+  const autoMixSections = useMemo(() => project.autoMixSections ?? [], [project.autoMixSections])
+  const selectedAutoMixSection = autoMixSections.find((section) => section.id === selectedAutoMixSectionId) ?? null
   const selectedNote = useMemo(
-    () => selectedTrackNotes.find((note) => note.id === project.selectedNoteId) ?? null,
-    [project.selectedNoteId, selectedTrackNotes],
+    () => (allTrackMelodyMode ? allTrackNotes : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' })))
+      .find((note) => note.id === project.selectedNoteId) ?? null,
+    [allTrackMelodyMode, allTrackNotes, project.selectedNoteId, selectedTrack?.id, selectedTrackNotes],
   )
   const selectedNoteIdSet = useMemo(() => new Set(selectedNoteIds), [selectedNoteIds])
   const selectedPatternNotes = useMemo(
-    () => selectedTrackNotes.filter((note) => selectedNoteIdSet.has(note.id)),
-    [selectedNoteIdSet, selectedTrackNotes],
+    () => (allTrackMelodyMode ? allTrackNotes : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' })))
+      .filter((note) => selectedNoteIdSet.has(note.id)),
+    [allTrackMelodyMode, allTrackNotes, selectedNoteIdSet, selectedTrack?.id, selectedTrackNotes],
   )
   const editableSelectedNotes = useMemo(
     () => (
@@ -735,20 +943,39 @@ function App() {
     )),
     [editableSelectedNotes],
   )
-  const projectEndBeat = useMemo(() => getNotesEndBeat(project.notesByTrack), [project.notesByTrack])
+  const arrangedProject = useMemo(() => expandProjectForArrangement(project), [project])
+  const projectEndBeat = useMemo(
+    () => Math.max(
+      getNotesEndBeat(arrangedProject.notesByTrack),
+      (arrangedProject.audioClips ?? []).reduce(
+        (latestEnd, clip) => Math.max(latestEnd, clip.startBeat + clip.durationBeats),
+        0,
+      ),
+    ),
+    [arrangedProject],
+  )
   const projectLengthBeats = Math.max(DEFAULT_PROJECT_LENGTH_BEATS, projectEndBeat + EDITING_TAIL_BEATS)
   const visibleBars = getVisibleBars(projectLengthBeats)
   const totalBeats = visibleBars * BEATS_PER_BAR
+  const tempoSections = useMemo(
+    () => getNormalizedTempoSections(project, totalBeats),
+    [project, totalBeats],
+  )
   const stepsPerBeat = noteDivision / 4
   const defaultDurationBeats = Math.max(MIN_DURATION_BEATS, Math.round(lastNoteDurationRef.current * stepsPerBeat) / stepsPerBeat)
   const totalSteps = totalBeats * stepsPerBeat
   const rollPitches = useMemo(
-    () => (selectedTrack?.instrumentId && isDrumInstrument(selectedTrack.instrumentId) ? DRUM_PITCHES : getDynamicPitches(selectedTrackNotes)),
-    [selectedTrack?.instrumentId, selectedTrackNotes],
+    () => {
+      if (!allTrackMelodyMode && selectedTrack?.instrumentId && isDrumInstrument(selectedTrack.instrumentId)) {
+        return DRUM_PITCHES
+      }
+      return getDynamicPitches((allTrackMelodyMode ? allTrackNotes : selectedTrackNotes).map((note) => ({ ...note })))
+    },
+    [allTrackMelodyMode, allTrackNotes, selectedTrack?.instrumentId, selectedTrackNotes],
   )
-  const tempoGraphPercent = Math.min(
-    100,
-    Math.max(0, ((project.tempo - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100),
+  const selectedTempoSection = useMemo(
+    () => tempoSections.find((section) => section.id === selectedTempoSectionId) ?? null,
+    [selectedTempoSectionId, tempoSections],
   )
   const beatWidth = DEFAULT_BEAT_WIDTH * rollZoom
   const stepWidth = beatWidth / stepsPerBeat
@@ -766,16 +993,25 @@ function App() {
     ...rollSurfaceStyle,
     gridTemplateColumns: `64px minmax(${totalBeats * beatWidth}px, 1fr)`,
   } as CSSProperties
+  const autoMixMarkerSections = useMemo(
+    () => autoMixSections
+      .filter((section) => section.endBeat > 0 && section.startBeat < totalBeats)
+      .sort((left, right) => left.startBeat - right.startBeat),
+    [autoMixSections, totalBeats],
+  )
   const selectedNotesByPitch = useMemo(() => {
-    const notesByPitch = new Map<number, Note[]>()
-    selectedTrackNotes.forEach((note) => {
+    const notesByPitch = new Map<number, TrackNote[]>()
+    ;(allTrackMelodyMode
+      ? allTrackNotes
+      : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' }))).forEach((note) => {
       const pitchNotes = notesByPitch.get(note.pitch) ?? []
       pitchNotes.push(note)
       notesByPitch.set(note.pitch, pitchNotes)
     })
     return notesByPitch
-  }, [selectedTrackNotes])
+  }, [allTrackMelodyMode, allTrackNotes, selectedTrack?.id, selectedTrackNotes])
   const otherNotesByPitch = useMemo(() => {
+    if (allTrackMelodyMode) return new Map<number, OtherNote[]>()
     const trackIds: string[] = []
     const noteArrays: Note[][] = []
     project.tracks.forEach((track) => {
@@ -835,10 +1071,46 @@ function App() {
 
       if (nextProject === current) return current
 
-      undoStackRef.current = [...undoStackRef.current.slice(-(HISTORY_LIMIT - 1)), current]
-      redoStackRef.current = []
+      if (historyBatchDepthRef.current > 0) {
+        historyBatchStartRef.current ??= current
+      } else if (hasUndoableProjectChange(current, nextProject)) {
+        undoStackRef.current = [...undoStackRef.current.slice(-(HISTORY_LIMIT - 1)), current]
+        redoStackRef.current = []
+        setHistoryVersion((version) => version + 1)
+      }
       projectRef.current = nextProject
       return nextProject
+    })
+  }
+
+  function beginHistoryBatch() {
+    if (historyBatchDepthRef.current === 0) {
+      historyBatchStartRef.current = projectRef.current
+    }
+    historyBatchDepthRef.current += 1
+  }
+
+  function endHistoryBatch() {
+    if (historyBatchDepthRef.current === 0) return
+
+    historyBatchDepthRef.current -= 1
+    if (historyBatchDepthRef.current > 0) return
+
+    const startProject = historyBatchStartRef.current
+    historyBatchStartRef.current = null
+    if (!startProject) return
+
+    setProjectState((current) => {
+      if (!hasUndoableProjectChange(startProject, current)) {
+        projectRef.current = current
+        return current
+      }
+
+      undoStackRef.current = [...undoStackRef.current.slice(-(HISTORY_LIMIT - 1)), startProject]
+      redoStackRef.current = []
+      setHistoryVersion((version) => version + 1)
+      projectRef.current = current
+      return current
     })
   }
 
@@ -856,6 +1128,7 @@ function App() {
 
     undoStackRef.current = undoStackRef.current.slice(0, -1)
     redoStackRef.current = [...redoStackRef.current.slice(-(HISTORY_LIMIT - 1)), projectRef.current]
+    setHistoryVersion((version) => version + 1)
     restoreProject(previousProject)
   }
 
@@ -865,6 +1138,7 @@ function App() {
 
     redoStackRef.current = redoStackRef.current.slice(0, -1)
     undoStackRef.current = [...undoStackRef.current.slice(-(HISTORY_LIMIT - 1)), projectRef.current]
+    setHistoryVersion((version) => version + 1)
     restoreProject(nextProject)
   }
 
@@ -926,8 +1200,50 @@ function App() {
   }, [playbackBeat, totalBeats])
 
   useEffect(() => {
-    setTempoInput(String(project.tempo))
-  }, [project.tempo])
+    activeEditorTabRef.current = activeEditorTab
+  }, [activeEditorTab])
+
+  useEffect(() => {
+    autoMixPanelOpenRef.current = autoMixPanelOpen
+  }, [autoMixPanelOpen])
+
+  useEffect(() => {
+    setTempoInput(String(selectedTempoSection?.tempo ?? project.tempo))
+  }, [project.tempo, selectedTempoSection?.tempo])
+
+  useEffect(() => {
+    if (autoMixSections.length === 0) {
+      if (selectedAutoMixSectionId !== null) setSelectedAutoMixSectionId(null)
+      return
+    }
+
+    if (!selectedAutoMixSectionId || !autoMixSections.some((section) => section.id === selectedAutoMixSectionId)) {
+      setSelectedAutoMixSectionId(autoMixSections[0]?.id ?? null)
+    }
+  }, [autoMixSections, selectedAutoMixSectionId])
+
+  useEffect(() => {
+    if (tempoSections.length === 0) {
+      if (selectedTempoSectionId !== null) setSelectedTempoSectionId(null)
+      return
+    }
+
+    if (!selectedTempoSectionId || !tempoSections.some((section) => section.id === selectedTempoSectionId)) {
+      setSelectedTempoSectionId(tempoSections[0]?.id ?? null)
+    }
+  }, [selectedTempoSectionId, tempoSections])
+
+  useEffect(() => {
+    const placements = project.patternPlacements ?? []
+    if (placements.length === 0) {
+      if (selectedTrackPlacementId !== null) setSelectedTrackPlacementId(null)
+      return
+    }
+
+    if (!selectedTrackPlacementId || !placements.some((placement) => placement.id === selectedTrackPlacementId)) {
+      setSelectedTrackPlacementId(placements[0]?.id ?? null)
+    }
+  }, [project.patternPlacements, selectedTrackPlacementId])
 
   useEffect(() => {
     setSelectedNoteIds([])
@@ -945,10 +1261,16 @@ function App() {
       }
       return
     }
-    if (patternSelectionRef.current?.active || patternRepeatRef.current?.active || noteDragRef.current?.active) return
+    if (
+      patternSelectionRef.current?.active ||
+      patternRepeatRef.current?.active ||
+      noteDragRef.current?.active ||
+      lassoSelectionRef.current.active
+    ) return
 
     const selectedNoteIdSetForBox = new Set(selectedNoteIds)
-    const selectedNotes = selectedTrackNotes.filter((note) => selectedNoteIdSetForBox.has(note.id))
+    const selectedNotes = (allTrackMelodyMode ? allTrackNotes : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' })))
+      .filter((note) => selectedNoteIdSetForBox.has(note.id))
     if (selectedNotes.length === 0) {
       setSelectionBox(null)
       return
@@ -977,8 +1299,9 @@ function App() {
       top: ROLL_HEADER_HEIGHT + startRow * ROLL_ROW_HEIGHT,
       width: (endStep - startStep + 1) * cellWidth,
     })
-  }, [activeEditorTab, rollPitches, selectedNoteIds, selectedTrackNotes, stepWidth, stepsPerBeat, totalSteps])
+  }, [activeEditorTab, allTrackMelodyMode, allTrackNotes, rollPitches, selectedNoteIds, selectedTrack?.id, selectedTrackNotes, stepWidth, stepsPerBeat, totalSteps])
 
+  interactionHandlersRef.current.addAutoMixSection = addAutoMixSection
   interactionHandlersRef.current.togglePlayback = togglePlayback
   interactionHandlersRef.current.copySelectedNotes = copySelectedNotes
   interactionHandlersRef.current.cutSelectedNotes = cutSelectedNotes
@@ -986,10 +1309,12 @@ function App() {
   interactionHandlersRef.current.moveDraggedNoteFromPointer = moveDraggedNoteFromPointer
   interactionHandlersRef.current.eraseDraggedCellFromPointer = eraseDraggedCellFromPointer
   interactionHandlersRef.current.eraseRightDraggedCellFromPointer = eraseRightDraggedCellFromPointer
+  interactionHandlersRef.current.finishLassoSelection = finishLassoSelection
   interactionHandlersRef.current.finishPatternSelection = finishPatternSelection
   interactionHandlersRef.current.finishPatternRepeat = finishPatternRepeat
   interactionHandlersRef.current.finishKeyboardNote = finishKeyboardNote
   interactionHandlersRef.current.startKeyboardNote = startKeyboardNote
+  interactionHandlersRef.current.transposeSelectedNotes = transposeSelectedNotes
   interactionHandlersRef.current.updatePatternRepeatPreview = updatePatternRepeatPreview
   interactionHandlersRef.current.updateLassoSelectionFromPointer = updateLassoSelectionFromPointer
   interactionHandlersRef.current.zoomRoll = zoomRoll
@@ -1070,6 +1395,17 @@ function App() {
         return
       }
 
+      if (
+        !isTypingTarget &&
+        !event.repeat &&
+        event.code === 'KeyC' &&
+        (activeEditorTabRef.current === 'automix' || autoMixPanelOpenRef.current)
+      ) {
+        event.preventDefault()
+        interactionHandlersRef.current.addAutoMixSection()
+        return
+      }
+
       if (!event.repeat && !isTypingTarget) {
         interactionHandlersRef.current.startKeyboardNote(event.code, event.timeStamp)
       }
@@ -1081,6 +1417,16 @@ function App() {
 
         event.preventDefault()
         interactionHandlersRef.current.deleteSelectedNote()
+        return
+      }
+
+      if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
+        if (isTypingTarget) {
+          return
+        }
+
+        event.preventDefault()
+        interactionHandlersRef.current.transposeSelectedNotes(event.code === 'ArrowUp' ? 1 : -1)
         return
       }
 
@@ -1152,6 +1498,7 @@ function App() {
       }
       const rightClickAction = rightClickRollActionRef.current
       pendingPointerMoveRef.current = null
+      interactionHandlersRef.current.finishLassoSelection()
       interactionHandlersRef.current.finishPatternSelection()
       interactionHandlersRef.current.finishPatternRepeat()
       noteDragRef.current = null
@@ -1166,6 +1513,7 @@ function App() {
       rollPointerGeometryRef.current = null
       setDraggingNoteId(null)
       interactionHandlersRef.current.stopHeldPreview()
+      endHistoryBatch()
 
       if (
         event?.type === 'pointerup' &&
@@ -1218,10 +1566,10 @@ function App() {
     let frameId = 0
     const tick = () => {
       const elapsedMs = performance.now() - playbackStartMsRef.current
-      const elapsedBeat = elapsedMs / 1000 / (60 / projectRef.current.tempo)
+      const startSeconds = getSecondsAtBeat(projectRef.current, playbackStartBeatRef.current, totalBeatsRef.current)
       const currentBeat = Math.min(
         totalBeatsRef.current,
-        playbackStartBeatRef.current + elapsedBeat,
+        getBeatAtSeconds(projectRef.current, startSeconds + elapsedMs / 1000, totalBeatsRef.current),
       )
       playbackBeatRef.current = currentBeat
       pianoRollRef.current?.style.setProperty(
@@ -1261,7 +1609,13 @@ function App() {
   function updateTempo(tempo: number) {
     if (!Number.isFinite(tempo) || tempo <= 0) return
 
-    const nextTempo = tempo
+    const nextTempo = clampTempoValue(tempo, project.tempo)
+    if (selectedTempoSectionId) {
+      updateTempoSection(selectedTempoSectionId, { tempo: nextTempo })
+      setTempoInput(String(nextTempo))
+      return
+    }
+
     setProject((current) => (current.tempo === nextTempo ? current : { ...current, tempo: nextTempo }))
     setTempoInput(String(nextTempo))
   }
@@ -1343,6 +1697,99 @@ function App() {
     )
   }
 
+  function createTrackPlacement(trackId: string, anchorBeat = getCurrentPlaybackBeat()): PatternPlacement {
+    const startBeat = clampBeatToSong(snapBeatToGrid(anchorBeat))
+    return {
+      id: createId('placement'),
+      trackId,
+      patternId: 'track-content',
+      startBeat,
+      spanBeats: getTrackSourceEndBeat(projectRef.current, trackId),
+    }
+  }
+
+  function addTrackPlacement(trackId: string, anchorBeat = getCurrentPlaybackBeat()) {
+    const placement = createTrackPlacement(trackId, anchorBeat)
+    setSelectedTrackPlacementId(placement.id)
+    setActiveEditorTab('arrange')
+    selectTrack(trackId)
+    setProject((current) => ({
+      ...current,
+      patternPlacements: [...(current.patternPlacements ?? []), placement],
+    }))
+  }
+
+  function updateTrackPlacement(placementId: string, updates: Partial<PatternPlacement>) {
+    setProject((current) => ({
+      ...current,
+      patternPlacements: (current.patternPlacements ?? []).map((placement) => (
+        placement.id === placementId
+          ? {
+              ...placement,
+              ...updates,
+              startBeat: Math.max(0, updates.startBeat ?? placement.startBeat),
+              spanBeats: Math.max(MIN_DURATION_BEATS, updates.spanBeats ?? placement.spanBeats),
+            }
+          : placement
+      )),
+    }))
+  }
+
+  function deleteTrackPlacement(placementId: string) {
+    setSelectedTrackPlacementId((current) => (current === placementId ? null : current))
+    setProject((current) => ({
+      ...current,
+      patternPlacements: (current.patternPlacements ?? []).filter((placement) => placement.id !== placementId),
+    }))
+  }
+
+  function beginTrackPlacementDrag(
+    placement: PatternPlacement,
+    event: ReactPointerEvent<HTMLElement>,
+    type: 'move' | 'resize',
+  ) {
+    if (event.button !== 0) return
+    const laneGrid = event.currentTarget.closest('.arrange-lane-grid')
+    if (!(laneGrid instanceof HTMLElement)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    beginHistoryBatch()
+    setSelectedTrackPlacementId(placement.id)
+    selectTrack(placement.trackId)
+    trackPlacementDragRef.current = {
+      placementId: placement.id,
+      startBeat: placement.startBeat,
+      startClientX: event.clientX,
+      startSpanBeats: placement.spanBeats,
+      type,
+    }
+
+    const rect = laneGrid.getBoundingClientRect()
+    const gridWidth = rect.width
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const drag = trackPlacementDragRef.current
+      if (!drag) return
+      const deltaBeats = snapBeatToGrid(((moveEvent.clientX - drag.startClientX) / Math.max(1, gridWidth)) * totalBeats)
+      if (drag.type === 'move') {
+        updateTrackPlacement(drag.placementId, { startBeat: Math.max(0, drag.startBeat + deltaBeats) })
+      } else {
+        updateTrackPlacement(drag.placementId, { spanBeats: Math.max(MIN_DURATION_BEATS, drag.startSpanBeats + deltaBeats) })
+      }
+    }
+    const stopDragging = () => {
+      endHistoryBatch()
+      trackPlacementDragRef.current = null
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopDragging)
+      window.removeEventListener('pointercancel', stopDragging)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopDragging)
+    window.addEventListener('pointercancel', stopDragging)
+  }
+
   function deleteTrack(trackId: string) {
     setProject((current) => {
       if (current.tracks.length <= 1) return current
@@ -1360,6 +1807,8 @@ function App() {
         selectedNoteId: null,
         tracks: nextTracks,
         notesByTrack: nextNotesByTrack,
+        audioClips: (current.audioClips ?? []).filter((clip) => clip.trackId !== trackId),
+        patternPlacements: (current.patternPlacements ?? []).filter((placement) => placement.trackId !== trackId),
       }
     })
   }
@@ -1436,13 +1885,16 @@ function App() {
     event: ReactPointerEvent<HTMLElement>,
     options: { deleteImmediately?: boolean; note?: Note } = {},
   ) {
-    if (!selectedTrack || event.button !== 2) return
+    if (event.button !== 2) return
 
     event.preventDefault()
     event.stopPropagation()
     setTrackContextMenu(null)
     setPianoRollContextMenu(null)
     cacheRollPointerGeometry()
+    if (options.deleteImmediately) {
+      beginHistoryBatch()
+    }
     rightEraseRef.current = { active: true, lastKey: '' }
     erasedNoteIdsRef.current = new Set(options.note ? [options.note.id] : [])
     rightClickRollActionRef.current = {
@@ -1481,13 +1933,14 @@ function App() {
     setPressedPitch(null)
   }
 
-  function startHeldPreview(pitch: number, velocity = 0.75) {
-    if (!selectedTrack) return
+  function startHeldPreview(pitch: number, velocity = 0.75, instrumentId?: InstrumentId) {
+    const previewInstrumentId = instrumentId ?? selectedTrack?.instrumentId
+    if (!previewInstrumentId) return
 
     stopHeldPreview()
     setPressedPitch(pitch)
     const token = previewTokenRef.current
-    void startPreviewNote(selectedTrack.instrumentId, pitch, velocity).then((preview) => {
+    void startPreviewNote(previewInstrumentId, pitch, velocity).then((preview) => {
       if (token !== previewTokenRef.current) {
         stopPreviewNote(preview)
         return
@@ -1496,9 +1949,9 @@ function App() {
     })
   }
 
-  function changeHeldPreviewPitch(pitch: number, velocity = 0.75) {
+  function changeHeldPreviewPitch(pitch: number, velocity = 0.75, instrumentId?: InstrumentId) {
     if (!heldPreviewRef.current) {
-      startHeldPreview(pitch, velocity)
+      startHeldPreview(pitch, velocity, instrumentId)
       return
     }
 
@@ -1508,7 +1961,7 @@ function App() {
       heldPreviewRef.current = null
       setPressedPitch(pitch)
       const token = previewTokenRef.current
-      void startPreviewNote(selectedTrack?.instrumentId ?? 'gm-0', pitch, velocity).then((preview) => {
+      void startPreviewNote(instrumentId ?? selectedTrack?.instrumentId ?? 'gm-0', pitch, velocity).then((preview) => {
         if (token !== previewTokenRef.current) {
           disposePreviewNote(preview)
           return
@@ -1740,12 +2193,13 @@ function App() {
   }
 
   function selectNotesInPatternArea(selection: PatternSelection) {
-    if (!selectedTrack) return
-
     const { endRow, endStep, startRow, startStep } = getSelectionBounds(selection)
     const startBeat = startStep / stepsPerBeat
     const endBeat = (endStep + 1) / stepsPerBeat
-    const selectedIds = selectedTrackNotes
+    const notePool = allTrackMelodyMode
+      ? allTrackNotes
+      : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' }))
+    const selectedIds = notePool
       .filter((note) => {
         const rowIndex = rollPitches.indexOf(note.pitch)
         const noteEndBeat = note.startBeat + note.durationBeats
@@ -1768,7 +2222,10 @@ function App() {
   }
 
   function selectAllNotes() {
-    if (!selectedTrack || selectedTrackNotes.length === 0) {
+    const notePool = allTrackMelodyMode
+      ? allTrackNotes
+      : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' }))
+    if (notePool.length === 0) {
       setSelectedNoteIds([])
       setSelectionBox(null)
       setProject((current) => (
@@ -1777,13 +2234,13 @@ function App() {
       return
     }
 
-    const selectedIds = selectedTrackNotes.map((note) => note.id)
+    const selectedIds = notePool.map((note) => note.id)
     setSelectedNoteIds(selectedIds)
     setEditMenuOpen(false)
     closePianoRollContextMenu()
     closeTrackContextMenu()
     cacheRollPointerGeometry()
-    updateSelectionBoxFromNotes(selectedTrackNotes)
+    updateSelectionBoxFromNotes(notePool)
     setProject((current) => (
       current.selectedNoteId === selectedIds[0]
         ? current
@@ -1828,13 +2285,17 @@ function App() {
     return inside
   }
 
-  function selectNotesInLasso(points: LassoPoint[]) {
-    if (!selectedTrack || points.length < 3) return
+  function getLassoSelectedNotes(points: LassoPoint[]) {
+    if (points.length < 3) return []
 
     const geometry = rollPointerGeometryRef.current
-    if (!geometry) return
+    if (!geometry) return []
 
-    const selectedIds = selectedTrackNotes
+    const notePool = allTrackMelodyMode
+      ? allTrackNotes
+      : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' }))
+
+    return notePool
       .filter((note) => {
         const rowIndex = rollPitches.indexOf(note.pitch)
         if (rowIndex < 0) return false
@@ -1843,7 +2304,11 @@ function App() {
         const noteCenterY = (rowIndex + 0.5) * ROLL_ROW_HEIGHT
         return isPointInPolygon(noteCenterX, noteCenterY, points)
       })
-      .map((note) => note.id)
+  }
+
+  function selectNotesInLasso(points: LassoPoint[]) {
+    const selectedNotes = getLassoSelectedNotes(points)
+    const selectedIds = selectedNotes.map((note) => note.id)
 
     setSelectedNoteIds(selectedIds)
     setProject((current) => {
@@ -1880,6 +2345,26 @@ function App() {
     lasso.points = [...lasso.points, point]
     setLassoPoints(lasso.points)
     selectNotesInLasso(lasso.points)
+  }
+
+  function finishLassoSelection() {
+    const lasso = lassoSelectionRef.current
+    if (!lasso.active) return
+
+    const selectedNotes = getLassoSelectedNotes(lasso.points)
+    const selectedIds = selectedNotes.map((note) => note.id)
+    setSelectedNoteIds(selectedIds)
+    if (selectedNotes.length > 0) {
+      updateSelectionBoxFromNotes(selectedNotes)
+    } else {
+      setSelectionBox(null)
+    }
+    setProject((current) => {
+      const nextSelectedNoteId = selectedIds[0] ?? null
+      return current.selectedNoteId === nextSelectedNoteId
+        ? current
+        : { ...current, selectedNoteId: nextSelectedNoteId }
+    })
   }
 
   function updatePatternSelectionFromPointer(clientX: number, clientY: number) {
@@ -1936,14 +2421,21 @@ function App() {
     return getPitchName(note.pitch)
   }
 
-  function findNoteAtCell(trackId: string, pitch: number, step: number) {
+  function getNoteTrackId(note: Note | TrackNote, fallbackTrackId = selectedTrack?.id ?? '') {
+    return 'trackId' in note && typeof note.trackId === 'string' ? note.trackId : fallbackTrackId
+  }
+
+  function findEditableNoteAtCell(pitch: number, step: number) {
     const beat = step / stepsPerBeat
-    return (project.notesByTrack[trackId] ?? []).find(
+    const notePool = allTrackMelodyMode
+      ? allTrackNotes
+      : selectedTrackNotes.map((note) => ({ ...note, trackId: selectedTrack?.id ?? '' }))
+    return notePool.find(
       (note) =>
         note.pitch === pitch &&
         beat >= note.startBeat &&
         beat < note.startBeat + note.durationBeats,
-    )
+    ) ?? null
   }
 
   function moveNoteToCell(noteId: string, trackId: string, pitch: number, step: number) {
@@ -2005,7 +2497,11 @@ function App() {
   }
 
   function moveNoteGroupToCell(drag: NoteDrag, pitch: number, step: number) {
-    const requestedPitchDelta = pitch - drag.originPitch
+    const pitchStep = getGroupedPitchStep(drag.originalNotes)
+    const rawPitchDelta = pitch - drag.originPitch
+    const requestedPitchDelta = pitchStep === 1
+      ? rawPitchDelta
+      : Math.round(rawPitchDelta / pitchStep) * pitchStep
     const requestedStepDelta = step - drag.originStep
     const originalNotes = drag.originalNotes
     const minPitchDelta = Math.max(...originalNotes.map((note) => rollPitches[rollPitches.length - 1] - note.pitch))
@@ -2025,34 +2521,41 @@ function App() {
     }))
 
     setProject((current) => {
-      const currentNotes = current.notesByTrack[drag.trackId] ?? []
-      const originalById = new Map(originalNotes.map((note) => [note.id, note]))
+      const movedById = new Map(
+        originalNotes.map((note) => [
+          note.id,
+          {
+            ...note,
+            pitch: note.pitch + pitchDelta,
+            startBeat: Math.max(0, Math.min(totalBeats - note.durationBeats, note.startBeat + stepDelta / stepsPerBeat)),
+          },
+        ]),
+      )
       let changed = current.selectedNoteId !== drag.noteId
-      const nextNotes = currentNotes.map((note) => {
-        const originalNote = originalById.get(note.id)
-        if (!originalNote) return note
+      const nextNotesByTrack = Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          notes.map((note) => {
+            const movedNote = movedById.get(note.id)
+            if (!movedNote || movedNote.trackId !== trackId) return note
+            if (note.pitch === movedNote.pitch && nearlyEqual(note.startBeat, movedNote.startBeat)) return note
 
-        const nextPitch = originalNote.pitch + pitchDelta
-        const nextStartBeat = Math.max(0, Math.min(totalBeats - originalNote.durationBeats, originalNote.startBeat + stepDelta / stepsPerBeat))
-        if (note.pitch === nextPitch && nearlyEqual(note.startBeat, nextStartBeat)) return note
-
-        changed = true
-        return {
-          ...note,
-          pitch: nextPitch,
-          startBeat: nextStartBeat,
-        }
-      })
+            changed = true
+            return {
+              ...note,
+              pitch: movedNote.pitch,
+              startBeat: movedNote.startBeat,
+            }
+          }),
+        ]),
+      )
 
       if (!changed) return current
 
       return {
         ...current,
         selectedNoteId: drag.noteId,
-        notesByTrack: {
-          ...current.notesByTrack,
-          [drag.trackId]: nextNotes,
-        },
+        notesByTrack: nextNotesByTrack,
       }
     })
     updateSelectionBoxFromNotes(movedNotes)
@@ -2067,7 +2570,7 @@ function App() {
   }
 
   function beginSelectionBoxMove(event: ReactPointerEvent<HTMLSpanElement>) {
-    if (event.button !== 0 || !selectedTrack || selectedPatternNotes.length === 0) return
+    if (event.button !== 0 || selectedPatternNotes.length === 0) return
 
     const pointerCell = getCellFromPointer(event.clientX, event.clientY)
     if (!pointerCell) return
@@ -2086,6 +2589,7 @@ function App() {
       ...selectedPatternNotes.map((note) => Math.round(note.startBeat * stepsPerBeat)),
     )
     const firstNote = selectedPatternNotes[0]
+    beginHistoryBatch()
     noteDragRef.current = {
       active: true,
       grabPitchOffset: pointerCell.pitch - originPitch,
@@ -2095,7 +2599,7 @@ function App() {
       originalNotes: selectedPatternNotes,
       originPitch,
       originStep,
-      trackId: selectedTrack.id,
+      trackId: firstNote.trackId,
       lastPitch: pointerCell.pitch,
       lastStep: pointerCell.step,
     }
@@ -2103,25 +2607,20 @@ function App() {
   }
 
   function eraseNoteAtCell(pitch: number, step: number) {
-    const beat = step / stepsPerBeat
-    const currentProject = projectRef.current
-    const trackId = currentProject.selectedTrackId
-    const noteToDelete = (currentProject.notesByTrack[trackId] ?? []).find(
-      (note) =>
-        note.pitch === pitch &&
-        beat >= note.startBeat &&
-        beat < note.startBeat + note.durationBeats,
-    )
+    const noteToDelete = findEditableNoteAtCell(pitch, step)
 
     if (!noteToDelete || erasedNoteIdsRef.current.has(noteToDelete.id)) return false
+    const trackId = noteToDelete.trackId
     erasedNoteIdsRef.current.add(noteToDelete.id)
     if (rightClickRollActionRef.current?.active) {
       rightClickRollActionRef.current.deleted = true
     }
 
+    beginHistoryBatch()
     setProject((current) => {
       const nextProject = {
         ...current,
+        selectedTrackId: trackId,
         selectedNoteId: null,
         notesByTrack: {
           ...current.notesByTrack,
@@ -2195,6 +2694,8 @@ function App() {
 
     event.preventDefault()
     event.stopPropagation()
+    const noteTrackId = getNoteTrackId(note, selectedTrack.id)
+    const sourceTrackNotes = projectRef.current.notesByTrack[noteTrackId] ?? []
     const isSelectedNote = selectedNoteIdSet.has(note.id)
     const isPatternMember = isSelectedNote && selectedNoteIds.length > 1
     if (toolMode === 'select' && !isSelectedNote) {
@@ -2202,12 +2703,15 @@ function App() {
       setSelectionBox(null)
       lastNoteDurationRef.current = note.durationBeats
       setProject((current) =>
-        current.selectedNoteId === note.id ? current : { ...current, selectedNoteId: note.id },
+        current.selectedNoteId === note.id && current.selectedTrackId === noteTrackId
+          ? current
+          : { ...current, selectedTrackId: noteTrackId, selectedNoteId: note.id },
       )
       return
     }
 
     if (toolMode === 'erase') {
+      beginHistoryBatch()
       cacheRollPointerGeometry()
       eraseRef.current = { active: true, lastKey: '' }
       erasedNoteIdsRef.current = new Set([note.id])
@@ -2216,7 +2720,9 @@ function App() {
     }
 
     setProject((current) =>
-      current.selectedNoteId === note.id ? current : { ...current, selectedNoteId: note.id },
+      current.selectedNoteId === note.id && current.selectedTrackId === noteTrackId
+        ? current
+        : { ...current, selectedTrackId: noteTrackId, selectedNoteId: note.id },
     )
     if (!isPatternMember) {
       setSelectedNoteIds([note.id])
@@ -2229,24 +2735,32 @@ function App() {
     const noteStartStep = Math.round(note.startBeat * stepsPerBeat)
     const groupNoteIds = isPatternMember ? selectedNoteIds : [note.id]
     const groupNoteIdSet = new Set(groupNoteIds)
+    const originalNotes = isPatternMember
+      ? (allTrackMelodyMode
+        ? allTrackNotes.filter((item) => groupNoteIdSet.has(item.id))
+        : sourceTrackNotes
+          .filter((item) => groupNoteIdSet.has(item.id))
+          .map((item) => ({ ...item, trackId: noteTrackId })))
+      : [{ ...note, trackId: noteTrackId }]
+    beginHistoryBatch()
     noteDragRef.current = {
       active: true,
       grabPitchOffset: 0,
       grabStepOffset: getGrabStepOffset(note, pointerCell?.step ?? null),
       groupNoteIds,
       noteId: note.id,
-      originalNotes: selectedTrackNotes.filter((item) => groupNoteIdSet.has(item.id)),
+      originalNotes,
       originPitch: note.pitch,
       originStep: noteStartStep,
-      trackId: selectedTrack.id,
+      trackId: noteTrackId,
       lastPitch: note.pitch,
       lastStep: pointerCell?.step ?? noteStartStep,
     }
-    startHeldPreview(note.pitch, note.velocity)
+    startHeldPreview(note.pitch, note.velocity, projectRef.current.tracks.find((track) => track.id === noteTrackId)?.instrumentId)
   }
 
   function beginPatternRepeat(event: ReactPointerEvent<HTMLSpanElement>) {
-    if (event.button !== 0 || !selectedTrack || selectedPatternNotes.length === 0 || !selectionBox) return
+    if (event.button !== 0 || selectedPatternNotes.length === 0 || !selectionBox) return
 
     event.preventDefault()
     event.stopPropagation()
@@ -2254,6 +2768,7 @@ function App() {
     const baseEndBeat = Math.max(...selectedPatternNotes.map((note) => note.startBeat + note.durationBeats))
     if (baseEndBeat <= baseStartBeat) return
 
+    beginHistoryBatch()
     patternRepeatRef.current = {
       active: true,
       baseEndBeat,
@@ -2264,7 +2779,6 @@ function App() {
       notes: selectedPatternNotes,
       repeatCount: 1,
       startClientX: event.clientX,
-      trackId: selectedTrack.id,
     }
   }
 
@@ -2294,7 +2808,7 @@ function App() {
 
     const spanBeats = repeat.baseEndBeat - repeat.baseStartBeat
     const repeatStepBeats = spanBeats + repeat.gapBeats
-    const nextNotes: Note[] = []
+    const nextNotes: TrackNote[] = []
     for (let repeatIndex = 1; repeatIndex < repeatCount; repeatIndex += 1) {
       const beatOffset = repeatStepBeats * repeatIndex
       repeat.notes.forEach((note) => {
@@ -2312,15 +2826,22 @@ function App() {
     setProject((current) => ({
       ...current,
       selectedNoteId: nextSelectedIds[0] ?? current.selectedNoteId,
-      notesByTrack: {
-        ...current.notesByTrack,
-        [repeat.trackId]: [...(current.notesByTrack[repeat.trackId] ?? []), ...nextNotes],
-      },
+      notesByTrack: Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          [
+            ...notes,
+            ...nextNotes
+              .filter((note) => note.trackId === trackId)
+              .map(({ trackId: _trackId, ...note }) => note),
+          ],
+        ]),
+      ),
     }))
   }
 
   function beginRightEraseNote(note: Note, event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!selectedTrack || event.button !== 2) return
+    if (event.button !== 2) return
     beginRightClickRollAction(event, { deleteImmediately: true, note })
   }
 
@@ -2337,6 +2858,7 @@ function App() {
     event.preventDefault()
     if (toolMode === 'erase') {
       cacheRollPointerGeometry()
+      beginHistoryBatch()
       eraseRef.current = { active: true, lastKey: '' }
       erasedNoteIdsRef.current = new Set()
       eraseNoteAtCellOnce(pitch, step, eraseRef.current)
@@ -2353,11 +2875,13 @@ function App() {
       return
     }
 
-    const existingNote = findNoteAtCell(selectedTrack.id, pitch, step)
+    const existingNote = findEditableNoteAtCell(pitch, step)
     if (existingNote) {
+      const noteTrackId = existingNote.trackId
       setDraggingNoteId(existingNote.id)
       cacheRollPointerGeometry()
       const existingNoteStartStep = Math.round(existingNote.startBeat * stepsPerBeat)
+      beginHistoryBatch()
       noteDragRef.current = {
         active: true,
         grabPitchOffset: 0,
@@ -2367,18 +2891,22 @@ function App() {
         originalNotes: [existingNote],
         originPitch: pitch,
         originStep: existingNoteStartStep,
-        trackId: selectedTrack.id,
+        trackId: noteTrackId,
         lastPitch: pitch,
         lastStep: step,
       }
       setProject((current) =>
-        current.selectedNoteId === existingNote.id
+        current.selectedNoteId === existingNote.id && current.selectedTrackId === noteTrackId
           ? current
-          : { ...current, selectedNoteId: existingNote.id },
+          : { ...current, selectedTrackId: noteTrackId, selectedNoteId: existingNote.id },
       )
       setSelectedNoteIds([existingNote.id])
       lastNoteDurationRef.current = existingNote.durationBeats
-      startHeldPreview(pitch, existingNote.velocity)
+      startHeldPreview(
+        pitch,
+        existingNote.velocity,
+        projectRef.current.tracks.find((track) => track.id === noteTrackId)?.instrumentId,
+      )
       return
     }
 
@@ -2396,13 +2924,14 @@ function App() {
     }
 
     cacheRollPointerGeometry()
+    beginHistoryBatch()
     noteDragRef.current = {
       active: true,
       grabPitchOffset: 0,
       grabStepOffset: 0,
       groupNoteIds: [note.id],
       noteId: note.id,
-      originalNotes: [note],
+      originalNotes: [{ ...note, trackId: selectedTrack.id }],
       originPitch: pitch,
       originStep: step,
       trackId: selectedTrack.id,
@@ -2433,7 +2962,6 @@ function App() {
   }
 
   function deleteSelectedNote() {
-    if (!selectedTrack) return
     if (selectedNoteIds.length > 1) {
       deleteSelectedNotes()
       return
@@ -2443,7 +2971,7 @@ function App() {
   }
 
   function deleteSelectedNotes() {
-    if (!selectedTrack || selectedNoteIds.length === 0) return
+    if (selectedNoteIds.length === 0) return
 
     const idsToDelete = new Set(selectedNoteIds)
     setSelectedNoteIds([])
@@ -2451,29 +2979,55 @@ function App() {
     setProject((current) => ({
       ...current,
       selectedNoteId: null,
-      notesByTrack: {
-        ...current.notesByTrack,
-        [selectedTrack.id]: (current.notesByTrack[selectedTrack.id] ?? []).filter(
-          (note) => !idsToDelete.has(note.id),
-        ),
-      },
+      notesByTrack: Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          notes.filter((note) => !idsToDelete.has(note.id)),
+        ]),
+      ),
+    }))
+  }
+
+  function transposeSelectedNotes(direction: -1 | 1) {
+    if (editableSelectedNotes.length === 0) return
+
+    const pitchStep = getGroupedPitchStep(editableSelectedNotes)
+    const pitchDelta = direction * pitchStep
+    const targetIds = new Set(editableSelectedNotes.map((note) => note.id))
+    const targetNotes = allTrackNotes.filter((note) => targetIds.has(note.id))
+    if (targetNotes.length === 0) return
+
+    const minNextPitch = Math.min(...targetNotes.map((note) => note.pitch + pitchDelta))
+    const maxNextPitch = Math.max(...targetNotes.map((note) => note.pitch + pitchDelta))
+    if (minNextPitch < 0 || maxNextPitch > 127) return
+
+    setProject((current) => ({
+      ...current,
+      notesByTrack: Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          notes.map((note) => (
+            targetIds.has(note.id)
+              ? { ...note, pitch: note.pitch + pitchDelta }
+              : note
+          )),
+        ]),
+      ),
     }))
   }
 
   function deleteNote(noteId: string) {
-    if (!selectedTrack) return
-
     setSelectedNoteIds((current) => current.filter((id) => id !== noteId))
     setSelectionBox(null)
     setProject((current) => ({
       ...current,
       selectedNoteId: current.selectedNoteId === noteId ? null : current.selectedNoteId,
-      notesByTrack: {
-        ...current.notesByTrack,
-        [selectedTrack.id]: (current.notesByTrack[selectedTrack.id] ?? []).filter(
-          (note) => note.id !== noteId,
-        ),
-      },
+      notesByTrack: Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          notes.filter((note) => note.id !== noteId),
+        ]),
+      ),
     }))
   }
 
@@ -2487,30 +3041,32 @@ function App() {
   function updateSelectedNotes(
     updates: Partial<Pick<Note, 'velocity' | 'pitchBend' | 'volume' | 'pan' | 'expression' | 'modulation'>>,
   ) {
-    if (!selectedTrack || editableSelectedNotes.length === 0) return
+    if (editableSelectedNotes.length === 0) return
 
     const targetIds = new Set(editableSelectedNotes.map((note) => note.id))
     setProject((current) => {
       let changed = false
-      const nextNotes = (current.notesByTrack[selectedTrack.id] ?? []).map((note) => {
-        if (!targetIds.has(note.id)) return note
+      const nextNotesByTrack = Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          notes.map((note) => {
+            if (!targetIds.has(note.id)) return note
 
-        const nextNote = { ...note, ...updates }
-        if (Object.entries(updates).some(([key, value]) => note[key as keyof Note] !== value)) {
-          changed = true
-          return nextNote
-        }
+            const nextNote = { ...note, ...updates }
+            if (Object.entries(updates).some(([key, value]) => note[key as keyof Note] !== value)) {
+              changed = true
+              return nextNote
+            }
 
-        return note
-      })
+            return note
+          }),
+        ]),
+      )
 
       return changed
         ? {
             ...current,
-            notesByTrack: {
-              ...current.notesByTrack,
-              [selectedTrack.id]: nextNotes,
-            },
+            notesByTrack: nextNotesByTrack,
           }
         : current
     })
@@ -2538,12 +3094,14 @@ function App() {
     }
 
     event.preventDefault()
+    beginHistoryBatch()
     setFromClientY(event.clientY)
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       setFromClientY(moveEvent.clientY)
     }
     const stop = () => {
+      endHistoryBatch()
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', stop)
       window.removeEventListener('pointercancel', stop)
@@ -2555,55 +3113,56 @@ function App() {
   }
 
   function updateNoteEvent(noteId: string, updates: Partial<Pick<Note, 'pitch' | 'startBeat' | 'durationBeats' | 'velocity'>>) {
-    if (!selectedTrack) return
-
     setProject((current) => {
       let changed = false
-      const nextNotes = (current.notesByTrack[selectedTrack.id] ?? []).map((note) => {
-        if (note.id !== noteId) return note
+      const nextNotesByTrack = Object.fromEntries(
+        Object.entries(current.notesByTrack).map(([trackId, notes]) => [
+          trackId,
+          notes.map((note) => {
+            if (note.id !== noteId) return note
 
-        const nextNote = {
-          ...note,
-          ...updates,
-          durationBeats: Math.max(MIN_DURATION_BEATS, updates.durationBeats ?? note.durationBeats),
-          pitch: Math.max(0, Math.min(127, Math.round(updates.pitch ?? note.pitch))),
-          startBeat: Math.max(0, updates.startBeat ?? note.startBeat),
-        }
+            const nextNote = {
+              ...note,
+              ...updates,
+              durationBeats: Math.max(MIN_DURATION_BEATS, updates.durationBeats ?? note.durationBeats),
+              pitch: Math.max(0, Math.min(127, Math.round(updates.pitch ?? note.pitch))),
+              startBeat: Math.max(0, updates.startBeat ?? note.startBeat),
+            }
 
-        if (
-          note.pitch !== nextNote.pitch ||
-          !nearlyEqual(note.startBeat, nextNote.startBeat) ||
-          !nearlyEqual(note.durationBeats, nextNote.durationBeats) ||
-          !nearlyEqual(note.velocity, nextNote.velocity)
-        ) {
-          changed = true
-          return nextNote
-        }
+            if (
+              note.pitch !== nextNote.pitch ||
+              !nearlyEqual(note.startBeat, nextNote.startBeat) ||
+              !nearlyEqual(note.durationBeats, nextNote.durationBeats) ||
+              !nearlyEqual(note.velocity, nextNote.velocity)
+            ) {
+              changed = true
+              return nextNote
+            }
 
-        return note
-      })
+            return note
+          }),
+        ]),
+      )
 
       return changed
         ? {
             ...current,
             selectedNoteId: noteId,
-            notesByTrack: {
-              ...current.notesByTrack,
-              [selectedTrack.id]: nextNotes,
-            },
+            notesByTrack: nextNotesByTrack,
           }
         : current
     })
   }
 
-  function resizeNote(noteId: string, durationBeats: number) {
-    if (!selectedTrack) return
+  function resizeNote(targetNote: Note | TrackNote, durationBeats: number) {
+    const trackId = getNoteTrackId(targetNote)
+    if (!trackId) return
 
     setProject((current) => {
-      const currentNotes = current.notesByTrack[selectedTrack.id] ?? []
-      let changed = current.selectedNoteId !== noteId
+      const currentNotes = current.notesByTrack[trackId] ?? []
+      let changed = current.selectedNoteId !== targetNote.id
       const nextNotes = currentNotes.map((note) => {
-        if (note.id !== noteId) return note
+        if (note.id !== targetNote.id) return note
 
         const nextDurationBeats = Math.max(
           MIN_DURATION_BEATS,
@@ -2623,22 +3182,23 @@ function App() {
 
       return {
         ...current,
-        selectedNoteId: noteId,
+        selectedNoteId: targetNote.id,
         notesByTrack: {
           ...current.notesByTrack,
-          [selectedTrack.id]: nextNotes,
+          [trackId]: nextNotes,
         },
       }
     })
   }
 
-  function startResizingNote(note: Note, event: ReactPointerEvent<HTMLSpanElement>) {
+  function startResizingNote(note: Note | TrackNote, event: ReactPointerEvent<HTMLSpanElement>) {
     const row = event.currentTarget.closest('.step-row')
     if (!(row instanceof HTMLElement)) return
 
     event.preventDefault()
     event.stopPropagation()
     setResizingNoteId(note.id)
+    beginHistoryBatch()
     setProject((current) =>
       current.selectedNoteId === note.id ? current : { ...current, selectedNoteId: note.id },
     )
@@ -2652,7 +3212,7 @@ function App() {
       const x = Math.min(Math.max(pendingClientX - rowRect.left, 0), rowRect.width)
       const step = Math.ceil((x / rowRect.width) * totalSteps)
       const endBeat = step / stepsPerBeat
-      resizeNote(note.id, endBeat - note.startBeat)
+      resizeNote(note, endBeat - note.startBeat)
     }
 
     function handlePointerMove(moveEvent: PointerEvent) {
@@ -2667,6 +3227,7 @@ function App() {
         window.cancelAnimationFrame(resizeFrameId)
         applyPendingResize()
       }
+      endHistoryBatch()
       setResizingNoteId(null)
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', stopResizing)
@@ -2799,7 +3360,8 @@ function App() {
     const dataUrl = await blobToDataUrl(blob)
     const resolvedDurationSeconds = durationSeconds ?? await getAudioDurationFromDataUrl(dataUrl)
     const startBeat = snapBeatToGrid(startBeatOverride ?? getCurrentPlaybackBeat())
-    const durationBeats = Math.max(MIN_DURATION_BEATS, resolvedDurationSeconds / (60 / projectRef.current.tempo))
+    const tempoAtStart = getTempoAtBeat(projectRef.current, startBeat, totalBeats)
+    const durationBeats = Math.max(MIN_DURATION_BEATS, resolvedDurationSeconds / (60 / tempoAtStart))
     const clip: AudioClip = {
       id: createId('audio'),
       trackId,
@@ -2825,7 +3387,8 @@ function App() {
     const resolvedDurationSeconds = await getAudioDurationFromDataUrl(dataUrl)
     const waveform = await getAudioWaveform(file)
     const startBeat = snapBeatToGrid(getCurrentPlaybackBeat())
-    const durationBeats = Math.max(MIN_DURATION_BEATS, resolvedDurationSeconds / (60 / projectRef.current.tempo))
+    const tempoAtStart = getTempoAtBeat(projectRef.current, startBeat, totalBeats)
+    const durationBeats = Math.max(MIN_DURATION_BEATS, resolvedDurationSeconds / (60 / tempoAtStart))
     const nextTrack: Track = {
       id: trackId,
       name,
@@ -2874,6 +3437,12 @@ function App() {
       if (!file.type.startsWith('audio/')) continue
       await addAudioFileAsTrack(file)
     }
+  }
+
+  function focusTrackAtBeat(trackId: string, beat: number) {
+    selectTrack(trackId)
+    setActiveEditorTab('piano-roll')
+    seekPlayback(beat)
   }
 
   async function toggleVoiceRecording() {
@@ -3188,8 +3757,8 @@ function App() {
     }
   }
 
-  function createAutoMixSection(current: Project): AutoMixSection {
-    const startBeat = Math.max(0, Math.floor(playbackBeat / BEATS_PER_BAR) * BEATS_PER_BAR)
+  function createAutoMixSection(current: Project, anchorBeat = playbackBeat): AutoMixSection {
+    const startBeat = Math.max(0, Math.floor(anchorBeat / BEATS_PER_BAR) * BEATS_PER_BAR)
     const projectEnd = Math.max(DEFAULT_PROJECT_LENGTH_BEATS, getNotesEndBeat(current.notesByTrack))
     const endBeat = Math.min(projectEnd + BEATS_PER_BAR, startBeat + BEATS_PER_BAR * 4)
 
@@ -3205,12 +3774,126 @@ function App() {
     }
   }
 
+  function createFullSongAutoMixSection(current: Project): AutoMixSection {
+    const projectEnd = Math.max(
+      DEFAULT_PROJECT_LENGTH_BEATS,
+      getNotesEndBeat(current.notesByTrack),
+      (current.audioClips ?? []).reduce((latest, clip) => Math.max(latest, clip.startBeat + clip.durationBeats), 0),
+    )
+
+    return {
+      id: createId('automix'),
+      name: '전체 구간',
+      startBeat: 0,
+      endBeat: Math.max(BEATS_PER_BAR, projectEnd),
+      intensity: 0.7,
+      priorities: Object.fromEntries(
+        current.tracks.map((track) => [track.id, getDefaultAutoMixPriority(track)]),
+      ),
+    }
+  }
+
+  function getAutoMixGenrePriority(track: Track, genre: AutoMixGenrePreset) {
+    const role = getAutoMixRole(track)
+    const trackName = track.name.toLowerCase()
+    const isAudioTrack = track.kind === 'audio' || track.instrumentId === 'audio-track'
+
+    if (genre === 'default') return getDefaultAutoMixPriority(track)
+
+    if (genre === 'ballad') {
+      if (isAudioTrack || role === '주요 선율' || role === '중심 악기') return 5
+      if (role === '배경 선율' || role === '보조 선율') return 4
+      if (role === '리듬 중심' || role === '저음 받침') return 3
+      return 3
+    }
+
+    if (genre === 'rock') {
+      if (isDrumInstrument(track.instrumentId) || role === '저음 받침') return 5
+      if (trackName.includes('guitar') || trackName.includes('기타') || role === '리듬 악기') return 4
+      if (role === '주요 선율' || role === '중심 악기') return 4
+      return 3
+    }
+
+    if (genre === 'hiphop') {
+      if (isDrumInstrument(track.instrumentId) || role === '저음 받침') return 5
+      if (isAudioTrack || role === '신스 선율' || role === '중심 악기') return 4
+      return 3
+    }
+
+    if (genre === 'edm') {
+      if (isDrumInstrument(track.instrumentId) || role === '저음 받침' || role === '신스 선율') return 5
+      if (role === '주요 선율' || role === '리듬 악기') return 4
+      if (role === '공간 배경') return 2
+      return 3
+    }
+
+    if (genre === 'orchestra') {
+      if (trackName.includes('violin') || trackName.includes('strings') || role === '주요 선율') return 5
+      if (trackName.includes('brass') || role === '배경 선율' || role === '보조 선율') return 4
+      if (isDrumInstrument(track.instrumentId)) return 3
+      return 4
+    }
+
+    return getDefaultAutoMixPriority(track)
+  }
+
+  function applyAutoMixGenrePreset(nextGenre: AutoMixGenrePreset) {
+    setAutoMixGenrePreset(nextGenre)
+    setAutoMixPanelOpen(true)
+    setProject((current) => {
+      const sections = (current.autoMixSections ?? []).length > 0
+        ? current.autoMixSections ?? []
+        : [createFullSongAutoMixSection(current)]
+
+      const nextSections = sections.map((section) => {
+        const focusTrackId = getAutoMixFocusTrackId(section)
+        return {
+          ...section,
+          priorities: Object.fromEntries(
+            current.tracks.map((track) => [
+              track.id,
+              track.id === focusTrackId
+                ? 5
+                : getAutoMixGenrePriority(track, nextGenre),
+            ]),
+          ),
+        }
+      })
+
+      return {
+        ...current,
+        autoMixSections: nextSections,
+      }
+    })
+  }
+
+  function focusAutoMixSection(sectionId: string) {
+    setSelectedAutoMixSectionId(sectionId)
+    setAutoMixPanelOpen(true)
+  }
+
   function addAutoMixSection() {
     setAutoMixPanelOpen(true)
-    setProject((current) => ({
-      ...current,
-      autoMixSections: [...(current.autoMixSections ?? []), createAutoMixSection(current)],
-    }))
+    setProject((current) => {
+      const nextSection = createAutoMixSection(current)
+      setSelectedAutoMixSectionId(nextSection.id)
+      return {
+        ...current,
+        autoMixSections: [...(current.autoMixSections ?? []), nextSection],
+      }
+    })
+  }
+
+  function addAutoMixSectionAtBeat(anchorBeat: number) {
+    setAutoMixPanelOpen(true)
+    setProject((current) => {
+      const nextSection = createAutoMixSection(current, anchorBeat)
+      setSelectedAutoMixSectionId(nextSection.id)
+      return {
+        ...current,
+        autoMixSections: [...(current.autoMixSections ?? []), nextSection],
+      }
+    })
   }
 
   function updateAutoMixSection(sectionId: string, updates: Partial<AutoMixSection>) {
@@ -3251,10 +3934,89 @@ function App() {
   }
 
   function deleteAutoMixSection(sectionId: string) {
+    if (selectedAutoMixSectionId === sectionId) {
+      setSelectedAutoMixSectionId(null)
+    }
     setProject((current) => ({
       ...current,
       autoMixSections: (current.autoMixSections ?? []).filter((section) => section.id !== sectionId),
     }))
+  }
+
+  function createTempoSection(anchorBeat = getCurrentPlaybackBeat()): TempoSection {
+    const startBeat = Math.max(0, Math.floor(anchorBeat / BEATS_PER_BAR) * BEATS_PER_BAR)
+    const endBeat = Math.min(
+      totalBeats,
+      Math.max(startBeat + BEATS_PER_BAR, startBeat + BEATS_PER_BAR * TEMPO_SECTION_DEFAULT_BARS),
+    )
+
+    return {
+      id: createId('tempo'),
+      name: `빠르기 구간 ${tempoSections.length + 1}`,
+      startBeat,
+      endBeat,
+      tempo: Math.round(getTempoAtBeat(projectRef.current, startBeat, totalBeats)),
+    }
+  }
+
+  function addTempoSection(anchorBeat = getCurrentPlaybackBeat()) {
+    setProject((current) => {
+      const nextSection = createTempoSection(anchorBeat)
+      setSelectedTempoSectionId(nextSection.id)
+      return {
+        ...current,
+        tempoSections: [...(current.tempoSections ?? []), nextSection],
+      }
+    })
+  }
+
+  function updateTempoSection(sectionId: string, updates: Partial<TempoSection>) {
+    setProject((current) => {
+      const sortedSections = [...(current.tempoSections ?? [])].sort((left, right) => left.startBeat - right.startBeat)
+      const sectionIndex = sortedSections.findIndex((section) => section.id === sectionId)
+      const previousSection = sectionIndex > 0 ? sortedSections[sectionIndex - 1] : null
+      const nextSection = sectionIndex >= 0 && sectionIndex < sortedSections.length - 1 ? sortedSections[sectionIndex + 1] : null
+      const minStartBeat = previousSection?.endBeat ?? 0
+      const maxEndBeat = nextSection?.startBeat ?? totalBeats
+
+      return {
+        ...current,
+        tempoSections: (current.tempoSections ?? []).map((section) => {
+          if (section.id !== sectionId) return section
+
+          const nextStartBeat = Math.max(
+            minStartBeat,
+            Math.min(maxEndBeat - 0.25, updates.startBeat ?? section.startBeat),
+          )
+          const nextEndBeat = Math.max(
+            nextStartBeat + 0.25,
+            Math.min(maxEndBeat, updates.endBeat ?? section.endBeat),
+          )
+
+          return {
+            ...section,
+            ...updates,
+            startBeat: nextStartBeat,
+            endBeat: nextEndBeat,
+            tempo: clampTempoValue(updates.tempo ?? section.tempo, current.tempo),
+          }
+        }),
+      }
+    })
+  }
+
+  function deleteTempoSection(sectionId: string) {
+    if (selectedTempoSectionId === sectionId) {
+      setSelectedTempoSectionId(null)
+    }
+    setProject((current) => ({
+      ...current,
+      tempoSections: (current.tempoSections ?? []).filter((section) => section.id !== sectionId),
+    }))
+  }
+
+  function focusTempoSection(sectionId: string) {
+    setSelectedTempoSectionId(sectionId)
   }
 
   function openProjectFile() {
@@ -3367,6 +4129,19 @@ function App() {
     seekPlayback((x / rect.width) * totalBeats)
   }
 
+  function getBeatFromHorizontalPointer(event: ReactPointerEvent<HTMLElement>) {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width)
+    return (x / rect.width) * totalBeats
+  }
+
+  function addAutoMixSectionFromPointer(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement).closest('.automix-cut-marker')) return
+    event.preventDefault()
+    addAutoMixSectionAtBeat(getBeatFromHorizontalPointer(event))
+  }
+
   function changeTempoFromGraph(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return
 
@@ -3384,6 +4159,18 @@ function App() {
 
   function disposePlaybackVoices() {
     playbackSessionRef.current += 1
+    silenceAllAudioOutput()
+    stopPreviewNoteImmediately(heldPreviewRef.current)
+    heldPreviewRef.current = null
+    stopAllPreviewAudio()
+    keyPreviewRef.current.active = false
+    keyboardRecordingRef.current.forEach((recording) => {
+      if (recording.liveNoteInput === null) return
+      const track = activePlaybackTracksRef.current.find((item) => item.id === recording.trackId)
+      track?.instrument.triggerRelease(recording.liveNoteInput, Tone.now())
+    })
+    keyboardRecordingRef.current.clear()
+    setPressedPitch(null)
     activeTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     activeTimeoutsRef.current = []
     activeIntervalsRef.current.forEach((intervalId) => window.clearInterval(intervalId))
@@ -3419,10 +4206,18 @@ function App() {
     currentBeat: number,
     sessionId: number,
   ) {
-    const beatSeconds = 60 / projectRef.current.tempo
+    const currentProject = projectRef.current
     const offsetBeat = Math.max(0, currentBeat - note.startBeat)
-    const remainingDurationSeconds = Math.max(0.04, (note.durationBeats - offsetBeat) * beatSeconds)
-    const delayMs = Math.max(0, (note.startBeat - currentBeat) * beatSeconds * 1000)
+    const playbackStartBeat = note.startBeat + offsetBeat
+    const playbackEndBeat = note.startBeat + note.durationBeats
+    const remainingDurationSeconds = Math.max(
+      0.04,
+      getSecondsBetweenBeats(currentProject, playbackStartBeat, playbackEndBeat, totalBeats),
+    )
+    const delayMs = Math.max(
+      0,
+      (getSecondsAtBeat(currentProject, note.startBeat, totalBeats) - getSecondsAtBeat(currentProject, currentBeat, totalBeats)) * 1000,
+    )
     const noteInput = track.instrument.expectsMidi
       ? note.pitch
       : Tone.Frequency(note.pitch, 'midi').toFrequency()
@@ -3491,15 +4286,19 @@ function App() {
   }
 
   function schedulePlaybackAudioClips(currentProject: Project, startBeat: number, sessionId: number) {
-    const beatSeconds = 60 / currentProject.tempo
-
     ;(currentProject.audioClips ?? []).forEach((clip) => {
       const track = currentProject.tracks.find((item) => item.id === clip.trackId)
       if (!track || track.mute) return
       if (clip.startBeat + clip.durationBeats <= startBeat) return
 
-      const clipOffsetSeconds = Math.max(0, (startBeat - clip.startBeat) * beatSeconds)
-      const delayMs = Math.max(0, (clip.startBeat - startBeat) * beatSeconds * 1000)
+      const clipOffsetSeconds = Math.max(
+        0,
+        getSecondsBetweenBeats(currentProject, clip.startBeat, Math.min(startBeat, clip.startBeat + clip.durationBeats), totalBeats),
+      )
+      const delayMs = Math.max(
+        0,
+        (getSecondsAtBeat(currentProject, clip.startBeat, totalBeats) - getSecondsAtBeat(currentProject, startBeat, totalBeats)) * 1000,
+      )
       const timeoutId = window.setTimeout(() => {
         if (sessionId !== playbackSessionRef.current) return
         const context = Tone.getContext().rawContext
@@ -3511,7 +4310,13 @@ function App() {
             const source = context.createBufferSource()
             const gain = context.createGain()
             const panner = context.createStereoPanner()
-            const playDurationSeconds = Math.min(buffer.duration - clipOffsetSeconds, clip.durationBeats * beatSeconds - clipOffsetSeconds)
+            const clipDurationSeconds = getSecondsBetweenBeats(
+              currentProject,
+              clip.startBeat,
+              clip.startBeat + clip.durationBeats,
+              totalBeats,
+            )
+            const playDurationSeconds = Math.min(buffer.duration - clipOffsetSeconds, clipDurationSeconds - clipOffsetSeconds)
             if (playDurationSeconds <= 0) return
 
             source.buffer = buffer
@@ -3537,8 +4342,8 @@ function App() {
 
   function getLivePlaybackBeat() {
     const elapsedMs = performance.now() - playbackStartMsRef.current
-    const elapsedBeat = elapsedMs / 1000 / (60 / projectRef.current.tempo)
-    return Math.min(totalBeats, playbackStartBeatRef.current + elapsedBeat)
+    const startSeconds = getSecondsAtBeat(projectRef.current, playbackStartBeatRef.current, totalBeats)
+    return Math.min(totalBeats, getBeatAtSeconds(projectRef.current, startSeconds + elapsedMs / 1000, totalBeats))
   }
 
   function getCurrentPlaybackBeat() {
@@ -3566,11 +4371,12 @@ function App() {
 
     const safeStartBeat = Math.max(0, Math.min(totalBeats, startBeat))
     const currentProject = projectRef.current
+    const arrangedPlaybackProject = expandProjectForArrangement(currentProject)
 
-    currentProject.tracks.forEach((track) => {
+    arrangedPlaybackProject.tracks.forEach((track) => {
       if (track.mute) return
 
-      const notes = (currentProject.notesByTrack[track.id] ?? [])
+      const notes = (arrangedPlaybackProject.notesByTrack[track.id] ?? [])
         .map((note) => ({
           ...note,
           pitch: note.pitch + (note.pitchBend ?? 0),
@@ -3611,7 +4417,7 @@ function App() {
     playbackStartMsRef.current = performance.now()
     setPlaybackPosition(safeStartBeat)
     setIsPlaying(true)
-    schedulePlaybackAudioClips(currentProject, safeStartBeat, sessionId)
+    schedulePlaybackAudioClips(arrangedPlaybackProject, safeStartBeat, sessionId)
     schedulePlaybackWindow(safeStartBeat)
     activeIntervalsRef.current.push(
       window.setInterval(() => {
@@ -3621,7 +4427,7 @@ function App() {
     activeTimeoutsRef.current.push(
       window.setTimeout(
         resetPlayback,
-        Math.ceil(((totalBeats - safeStartBeat) * 60 * 1000) / currentProject.tempo) + 2200,
+        Math.ceil(getSecondsBetweenBeats(currentProject, safeStartBeat, totalBeats, totalBeats) * 1000) + 2200,
       ),
     )
   }
@@ -3638,6 +4444,72 @@ function App() {
     }
 
     void startPlayback()
+  }
+
+  function renderTempoSectionOverlay() {
+    if (tempoSections.length === 0) return null
+
+    return (
+      <div className="tempo-section-overlay" aria-label="빠르기 구간 표시">
+        {tempoSections.map((section, index) => {
+          const left = Math.min(100, Math.max(0, (section.startBeat / totalBeats) * 100))
+          const right = Math.min(100, Math.max(0, (section.endBeat / totalBeats) * 100))
+          const width = Math.max(1.2, right - left)
+          const isSelected = section.id === selectedTempoSection?.id
+
+          return (
+            <button
+              type="button"
+              className={isSelected ? 'tempo-section-marker is-selected' : 'tempo-section-marker'}
+              key={section.id}
+              style={{ left: `${left}%`, width: `${width}%` }}
+              title={`${section.name} · ${section.tempo} BPM`}
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                focusTempoSection(section.id)
+              }}
+            >
+              <strong>{section.name || `빠르기 ${index + 1}`}</strong>
+              <span>{section.tempo} BPM</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  function renderAutoMixCutOverlay() {
+    if (autoMixMarkerSections.length === 0) return null
+
+    return (
+      <div className="automix-cut-overlay" aria-label="자동 믹스 컷 표시">
+        {autoMixMarkerSections.map((section, index) => {
+          const left = Math.min(100, Math.max(0, (section.startBeat / totalBeats) * 100))
+          const right = Math.min(100, Math.max(0, (section.endBeat / totalBeats) * 100))
+          const width = Math.max(0.8, right - left)
+          const isSelected = section.id === selectedAutoMixSection?.id
+
+          return (
+            <button
+              type="button"
+              className={isSelected ? 'automix-cut-marker is-selected' : 'automix-cut-marker'}
+              key={section.id}
+              style={{ left: `${left}%`, width: `${width}%` }}
+              title={`${section.name} · ${Math.round(section.intensity * 100)}%`}
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                focusAutoMixSection(section.id)
+              }}
+            >
+              <strong>{section.name || `컷 ${index + 1}`}</strong>
+              <span>{Math.floor(section.startBeat / BEATS_PER_BAR) + 1} ~ {Math.ceil(section.endBeat / BEATS_PER_BAR)}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
   }
 
   return (
@@ -3665,7 +4537,7 @@ function App() {
                 setFileMenuOpen((current) => !current)
               }}
             >
-              <span>파일</span><span className="menu-chevron">⌄</span>
+              <span>파일</span>
             </button>
             {fileMenuOpen ? (
               <div className="file-menu">
@@ -3688,7 +4560,7 @@ function App() {
                 setEditMenuOpen((current) => !current)
               }}
             >
-              <span>편집</span><span className="menu-chevron">⌄</span>
+              <span>편집</span>
             </button>
             {editMenuOpen ? (
               <div className="file-menu">
@@ -3993,6 +4865,14 @@ function App() {
             <strong>{selectedTrack?.name ?? '트랙 1'}</strong>
             <button type="button" className="menu-button">☰</button>
           </div>
+          <label className="track-mode-toggle">
+            <input
+              type="checkbox"
+              checked={allTrackMelodyMode}
+              onChange={(event) => setAllTrackMelodyMode(event.target.checked)}
+            />
+            <span>전체 트랙 멜로디 편집</span>
+          </label>
 
           <div className="track-list" onContextMenu={openTrackPanelContextMenu}>
             {project.tracks.map((track, index) => (
@@ -4113,8 +4993,14 @@ function App() {
               </div>
               <div className="automix-actions">
                 <button type="button" className="automix-track-button" disabled={isAutoMixing} onPointerDown={() => void runAutoMixTracks()}>
-                  <img alt="" draggable={false} src="/instrument-icons/fx.svg" />
-                  <span>{isAutoMixing ? '믹스 중...' : '자동 믹스'}</span>
+                  <span className="automix-track-icon-stack" aria-hidden="true">
+                    <img alt="" draggable={false} src="/instrument-icons/fx.svg" />
+                    <i />
+                  </span>
+                  <span className="automix-track-copy">
+                    <strong>{isAutoMixing ? '자동 믹스 진행 중' : 'AutoMix'}</strong>
+                    <small>트랙 밸런스와 좌우 위치 자동 정리</small>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -4127,6 +5013,22 @@ function App() {
 
               {autoMixPanelOpen ? (
                 <div className="automix-priority-panel" aria-label="자동 믹스 우선순위">
+                  <div className="automix-preset-row">
+                    <label>
+                      <span>장르 추천</span>
+                      <select
+                        value={autoMixGenrePreset}
+                        onChange={(event) => applyAutoMixGenrePreset(event.target.value as AutoMixGenrePreset)}
+                      >
+                        {AUTO_MIX_GENRE_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>{preset.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button type="button" onPointerDown={() => applyAutoMixGenrePreset(autoMixGenrePreset)}>
+                      추천 적용
+                    </button>
+                  </div>
                   {autoMixReport.length > 0 ? (
                     <div className="automix-result-list">
                       {autoMixReport.map((item) => {
@@ -4144,17 +5046,18 @@ function App() {
                   ) : null}
                   <div className="automix-panel-head">
                     <strong>믹스 컷</strong>
-                    <button type="button" onPointerDown={addAutoMixSection}>＋ 컷 추가</button>
+                    <button type="button" onPointerDown={addAutoMixSection}>＋ 컷 추가 (C)</button>
                   </div>
                   {(project.autoMixSections ?? []).length === 0 ? (
                     <p>컷을 추가하고 그 구간에서 가장 중요한 트랙만 고르면 자동 믹스가 나머지를 알아서 뒤로 보냅니다.</p>
                   ) : (
                     (project.autoMixSections ?? []).map((section) => (
-                      <article className="automix-section" key={section.id}>
+                      <article className={section.id === selectedAutoMixSection?.id ? 'automix-section is-selected' : 'automix-section'} key={section.id}>
                         <div className="automix-section-top">
                           <input
                             aria-label="구간 이름"
                             value={section.name}
+                            onFocus={() => focusAutoMixSection(section.id)}
                             onChange={(event) => updateAutoMixSection(section.id, { name: event.target.value })}
                           />
                           <button type="button" onPointerDown={() => deleteAutoMixSection(section.id)}>삭제</button>
@@ -4211,7 +5114,7 @@ function App() {
                             ))}
                           </select>
                         </label>
-                        <div className="automix-cut-preview">
+                        <div className="automix-cut-preview" onPointerDown={() => focusAutoMixSection(section.id)}>
                           <span style={{ left: `${Math.min(100, Math.max(0, (section.startBeat / Math.max(1, totalBeats)) * 100))}%` }} />
                           <span style={{ left: `${Math.min(100, Math.max(0, (section.endBeat / Math.max(1, totalBeats)) * 100))}%` }} />
                         </div>
@@ -4332,41 +5235,65 @@ function App() {
           </div>
 
           {selectedTrackIsAudio ? (
-            <div className="audio-track-editor" style={rollSurfaceStyle}>
-              <header>
+            <div
+              className="piano-roll audio-roll"
+              ref={pianoRollRef}
+              style={rollShellStyle}
+            >
+              <div className="corner-cell">오디오</div>
+              <div
+                className="measure-row"
+                style={rollTimelineStyle}
+                onPointerDown={seekPlaybackFromTimeline}
+              >
+                <span className="timeline-seek-fill" aria-hidden="true" />
+                <span className="timeline-seek-handle" aria-hidden="true" />
+                {renderAutoMixCutOverlay()}
+                {Array.from({ length: visibleBars }, (_, bar) => (
+                  <div className="measure-cell" key={bar}>
+                    {bar + 1}
+                  </div>
+                ))}
+              </div>
+              <div className="audio-roll-label">
                 <strong>{selectedTrack?.name ?? '오디오 트랙'}</strong>
-                <span>파형 높이를 위아래로 드래그하면 이 오디오 트랙의 볼륨이 바뀝니다.</span>
-              </header>
-              {selectedAudioClip ? (
-                <div
-                  className="audio-waveform-editor"
-                  onPointerDown={(event) => adjustAudioClipVolumeFromPointer(selectedAudioClip, event)}
-                  role="slider"
-                  aria-label="오디오 볼륨"
-                  aria-valuemin={0}
-                  aria-valuemax={150}
-                  aria-valuenow={Math.round(selectedAudioClip.volume * 100)}
-                  tabIndex={0}
-                >
-                  <div className="audio-waveform-bars">
-                    {(selectedAudioClip.waveform?.length ? selectedAudioClip.waveform : Array.from({ length: 96 }, () => 0.25)).map((peak, index) => (
-                      <span
-                        key={index}
-                        style={{ height: `${Math.max(8, Math.min(100, peak * selectedAudioClip.volume * 100))}%` }}
-                      />
-                    ))}
-                  </div>
-                  <div className="audio-waveform-info">
-                    <strong>{selectedAudioClip.name}</strong>
-                    <span>볼륨 {Math.round(selectedAudioClip.volume * 100)}</span>
-                  </div>
+                <span>클립을 위아래로 드래그하면 볼륨이 바뀌고, 배치 탭에서는 전체 구성을 함께 볼 수 있습니다.</span>
+              </div>
+              <div className="audio-roll-grid">
+                <div className="audio-roll-lane">
+                  {selectedAudioClips.length > 0 ? selectedAudioClips.map((clip) => (
+                    <button
+                      type="button"
+                      className="audio-roll-clip"
+                      key={clip.id}
+                      title={`${clip.name} · 볼륨 ${Math.round(clip.volume * 100)}`}
+                      style={{
+                        left: `${(clip.startBeat / totalBeats) * 100}%`,
+                        width: `${Math.max(4, (clip.durationBeats / totalBeats) * 100)}%`,
+                      }}
+                      onPointerDown={(event) => adjustAudioClipVolumeFromPointer(clip, event)}
+                    >
+                      <span className="audio-roll-waveform" aria-hidden="true">
+                        {(clip.waveform?.length ? clip.waveform : Array.from({ length: 48 }, () => 0.25)).slice(0, 48).map((peak, index) => (
+                          <i
+                            key={index}
+                            style={{ height: `${Math.max(12, Math.min(100, peak * clip.volume * 100))}%` }}
+                          />
+                        ))}
+                      </span>
+                      <span className="audio-roll-meta">
+                        <strong>{clip.name}</strong>
+                        <em>볼륨 {Math.round(clip.volume * 100)}</em>
+                      </span>
+                    </button>
+                  )) : (
+                    <div className="audio-track-empty">
+                      <strong>오디오 파일이 없습니다</strong>
+                      <span>오디오 넣기나 음성 녹음을 누르면 새 오디오 트랙이 이 편집기에 한 줄로 추가됩니다.</span>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="audio-track-empty">
-                  <strong>오디오 파일이 없습니다</strong>
-                  <span>오디오 넣기를 누르면 새 오디오 트랙이 만들어집니다.</span>
-                </div>
-              )}
+              </div>
             </div>
           ) : (
           <div
@@ -4382,6 +5309,9 @@ function App() {
             >
               <span className="timeline-seek-fill" aria-hidden="true" />
               <span className="timeline-seek-handle" aria-hidden="true" />
+              <div className="automix-cut-stage">
+                {renderAutoMixCutOverlay()}
+              </div>
               {Array.from({ length: visibleBars }, (_, bar) => (
                 <div className="measure-cell" key={bar}>
                   {bar + 1}
@@ -4392,7 +5322,7 @@ function App() {
             <div className="roll-playhead-layer" aria-hidden="true">
               <span className="roll-playhead" />
             </div>
-            {selectionBox ? (
+            {selectionBox && (toolMode === 'select' || toolMode === 'lasso') ? (
               <span
                 className={selectionBox.selecting ? 'pattern-selection-box is-selecting' : 'pattern-selection-box'}
                 style={{
@@ -4452,17 +5382,45 @@ function App() {
                   onPointerDown={(event) => beginRowAction(pitch, event)}
                   onContextMenu={(event) => beginRowContextErase(pitch, event)}
                 >
-                  {(otherNotesByPitch.get(pitch) ?? []).map((note) => (
-                      <span
-                        className="note-block is-ghost"
-                        key={`${note.trackId}-${note.id}`}
-                        style={{
-                          left: `${(note.startBeat / totalBeats) * 100}%`,
-                          width: `${(note.durationBeats / totalBeats) * 100}%`,
-                        }}
-                        aria-hidden="true"
-                      />
-                    ))}
+                  {(otherNotesByPitch.get(pitch) ?? []).map((note) => {
+                      const className = [
+                        'note-block',
+                        allTrackMelodyMode ? 'is-all-track-note' : 'is-ghost',
+                        selectedNoteIdSet.has(note.id) ? 'is-selected' : '',
+                        selectedNoteIdSet.has(note.id) && selectedNoteIds.length > 1 ? 'is-pattern-selected' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+
+                      if (!allTrackMelodyMode) {
+                        return (
+                          <span
+                            className={className}
+                            key={`${note.trackId}-${note.id}`}
+                            style={{
+                              left: `${(note.startBeat / totalBeats) * 100}%`,
+                              width: `${(note.durationBeats / totalBeats) * 100}%`,
+                            }}
+                            aria-hidden="true"
+                          />
+                        )
+                      }
+
+                      return (
+                        <button
+                          type="button"
+                          className={className}
+                          key={`${note.trackId}-${note.id}`}
+                          style={{
+                            left: `${(note.startBeat / totalBeats) * 100}%`,
+                            width: `${(note.durationBeats / totalBeats) * 100}%`,
+                          }}
+                          onPointerDown={(event) => {
+                            beginMoveNote(note, event)
+                          }}
+                        />
+                      )
+                    })}
 
                   {(selectedNotesByPitch.get(pitch) ?? []).map((note) => {
                       const className = [
@@ -4514,17 +5472,64 @@ function App() {
             <div className="arrange-view" aria-label="편곡 배치" style={rollSurfaceStyle}>
               <header>
                 <strong>배치</strong>
-                <span>트랙별로 전체 멜로디 배치를 확인합니다.</span>
+                <span>트랙 전체를 블록처럼 여러 번 배치하고, 그 배치대로 재생과 내보내기가 따라갑니다.</span>
+                <div className="arrange-actions">
+                  <button
+                    type="button"
+                    disabled={!selectedTrack}
+                    onPointerDown={() => {
+                      if (!selectedTrack) return
+                      addTrackPlacement(selectedTrack.id)
+                    }}
+                  >
+                    선택 트랙 배치 추가
+                  </button>
+                </div>
               </header>
-              <div className="arrange-timeline">
+              <div className="arrange-summary">
+                <article>
+                  <strong>{project.tracks.length}</strong>
+                  <span>전체 트랙</span>
+                </article>
+                <article>
+                  <strong>{project.tracks.filter((track) => track.kind === 'audio').length}</strong>
+                  <span>오디오 트랙</span>
+                </article>
+                <article>
+                  <strong>{Object.values(project.notesByTrack).reduce((count, notes) => count + notes.length, 0)}</strong>
+                  <span>음표 수</span>
+                </article>
+                <article>
+                  <strong>{(project.audioClips ?? []).length}</strong>
+                  <span>클립 수</span>
+                </article>
+              </div>
+              <div className="arrange-help">
+                <article>
+                  <strong>1. 전체 구조 확인</strong>
+                  <span>어느 트랙에 멜로디와 오디오가 얼마나 들어갔는지 빠르게 훑습니다.</span>
+                </article>
+                <article>
+                  <strong>2. 바로 편집으로 이동</strong>
+                  <span>파란 음표나 초록 오디오 클립을 누르면 그 트랙과 위치로 즉시 이동합니다.</span>
+                </article>
+                <article>
+                  <strong>3. 컷 위치 잡기</strong>
+                  <span>윗줄 빈 공간을 누르면 그 지점에 AutoMix 컷을 바로 추가할 수 있습니다.</span>
+                </article>
+              </div>
+              <div className="arrange-timeline" onPointerDown={addAutoMixSectionFromPointer}>
+                {renderAutoMixCutOverlay()}
                 {Array.from({ length: visibleBars }, (_, bar) => (
                   <span key={bar}>{bar + 1}</span>
                 ))}
               </div>
               <div className="arrange-lanes">
-                {project.tracks.map((track, index) => {
-                  const notes = project.notesByTrack[track.id] ?? []
-                  const clips = (project.audioClips ?? []).filter((clip) => clip.trackId === track.id)
+                {project.tracks.map((track) => {
+                  const notes = arrangedProject.notesByTrack[track.id] ?? []
+                  const clips = (arrangedProject.audioClips ?? []).filter((clip) => clip.trackId === track.id)
+                  const placements = getTrackPlacements(project, track.id)
+                  const sourceLengthBeats = getTrackSourceEndBeat(project, track.id)
                   return (
                     <div className="arrange-lane" key={track.id}>
                       <button
@@ -4533,13 +5538,62 @@ function App() {
                         onPointerDown={() => selectTrack(track.id)}
                       >
                         <img alt="" draggable={false} src={getInstrumentImage(track.instrumentId)} />
-                        <span>트랙 {index + 1}</span>
+                        <span>{track.name}</span>
                       </button>
                       <div className="arrange-lane-grid">
+                        <button
+                          type="button"
+                          className="arrange-add-placement"
+                          onPointerDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            addTrackPlacement(track.id)
+                          }}
+                        >
+                          ＋ 전체 트랙 배치
+                        </button>
+                        {placements.map((placement) => (
+                          <div
+                            className={placement.id === selectedTrackPlacementId ? 'arrange-track-placement is-selected' : 'arrange-track-placement'}
+                            key={placement.id}
+                            onPointerDown={(event) => beginTrackPlacementDrag(placement, event, 'move')}
+                            role="button"
+                            tabIndex={0}
+                            style={{
+                              left: `${(placement.startBeat / totalBeats) * 100}%`,
+                              width: `${Math.max(3, (placement.spanBeats / totalBeats) * 100)}%`,
+                            }}
+                          >
+                            <strong>{track.name}</strong>
+                            <span>{Math.round(placement.spanBeats * 100) / 100}박</span>
+                            <em>원본 {Math.round(sourceLengthBeats * 100) / 100}박</em>
+                            <button
+                              type="button"
+                              className="arrange-track-placement-delete"
+                              onPointerDown={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                deleteTrackPlacement(placement.id)
+                              }}
+                            >
+                              ×
+                            </button>
+                            <span
+                              className="arrange-track-placement-resize"
+                              onPointerDown={(event) => beginTrackPlacementDrag(placement, event, 'resize')}
+                            />
+                          </div>
+                        ))}
                         {notes.map((note) => (
-                          <span
+                          <button
+                            type="button"
                             className="arrange-note"
                             key={note.id}
+                            title={`${track.name} · ${getPitchName(note.pitch)} · ${Math.round(note.startBeat * 100) / 100}박`}
+                            onPointerDown={(event) => {
+                              event.preventDefault()
+                              focusTrackAtBeat(track.id, note.startBeat)
+                            }}
                             style={{
                               left: `${(note.startBeat / totalBeats) * 100}%`,
                               width: `${(note.durationBeats / totalBeats) * 100}%`,
@@ -4547,10 +5601,15 @@ function App() {
                           />
                         ))}
                         {clips.map((clip) => (
-                          <span
+                          <button
+                            type="button"
                             className="arrange-audio-clip"
                             key={clip.id}
                             title={clip.name}
+                            onPointerDown={(event) => {
+                              event.preventDefault()
+                              focusTrackAtBeat(track.id, clip.startBeat)
+                            }}
                             style={{
                               left: `${(clip.startBeat / totalBeats) * 100}%`,
                               width: `${(clip.durationBeats / totalBeats) * 100}%`,
@@ -4565,7 +5624,7 @@ function App() {
                               ))}
                             </span>
                             <em>{clip.name}</em>
-                          </span>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -4577,24 +5636,100 @@ function App() {
             <div className="tempo-view" aria-label="템포 편집" style={rollSurfaceStyle}>
               <header>
                 <strong>빠르기</strong>
-                <span>그래프를 클릭해서 현재 프로젝트 빠르기를 조절합니다.</span>
+                <span>기본 BPM만 바꾸는 화면이 아니라, 구간별 빠르기 흐름을 나눠서 관리하는 화면입니다.</span>
               </header>
+              <div className="tempo-overview">
+                <article>
+                  <strong>{project.tempo}</strong>
+                  <span>기본 BPM</span>
+                </article>
+                <article>
+                  <strong>{tempoSections.length}</strong>
+                  <span>빠르기 구간</span>
+                </article>
+                <article>
+                  <strong>{selectedTempoSection ? selectedTempoSection.tempo : project.tempo}</strong>
+                  <span>{selectedTempoSection ? '선택한 구간 BPM' : '현재 편집 BPM'}</span>
+                </article>
+              </div>
               <div className="tempo-graph" onPointerDown={changeTempoFromGraph}>
+                {renderAutoMixCutOverlay()}
+                {renderTempoSectionOverlay()}
                 <span className="tempo-graph-min">{TEMPO_GRAPH_MIN}</span>
                 <span className="tempo-graph-max">{TEMPO_GRAPH_MAX}</span>
                 <span
                   className="tempo-graph-fill"
-                  style={{ height: `${tempoGraphPercent}%` }}
+                  style={{ height: `${Math.min(100, Math.max(0, (((selectedTempoSection?.tempo ?? project.tempo) - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100))}%` }}
                 />
                 <span
                   className="tempo-graph-handle"
-                  style={{ bottom: `${tempoGraphPercent}%` }}
+                  style={{ bottom: `${Math.min(100, Math.max(0, (((selectedTempoSection?.tempo ?? project.tempo) - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100))}%` }}
                 >
-                  {project.tempo} 빠르기
+                  {selectedTempoSection ? `${selectedTempoSection.tempo} BPM` : `${project.tempo} BPM`}
                 </span>
               </div>
+              <div className="tempo-section-actions">
+                <button type="button" onPointerDown={() => addTempoSection()}>＋ 빠르기 구간 추가</button>
+                <button type="button" onPointerDown={() => setSelectedTempoSectionId(null)}>기본 BPM 편집</button>
+                <span>구간을 하나 만든 뒤 선택하면 그래프와 숫자 입력으로 그 구간 BPM을 바로 다듬을 수 있습니다.</span>
+              </div>
+              {tempoSections.length > 0 ? (
+                <div className="tempo-section-list">
+                  {tempoSections.map((section) => (
+                    <article className={section.id === selectedTempoSection?.id ? 'tempo-section-card is-selected' : 'tempo-section-card'} key={section.id}>
+                      <div className="tempo-section-top">
+                        <input
+                          aria-label="빠르기 구간 이름"
+                          value={section.name}
+                          onFocus={() => focusTempoSection(section.id)}
+                          onChange={(event) => updateTempoSection(section.id, { name: event.target.value })}
+                        />
+                        <button type="button" onPointerDown={() => deleteTempoSection(section.id)}>삭제</button>
+                      </div>
+                      <div className="tempo-section-grid">
+                        <label>
+                          <span>시작 마디</span>
+                          <input
+                            min={1}
+                            step={0.25}
+                            type="number"
+                            value={Number((section.startBeat / BEATS_PER_BAR + 1).toFixed(2))}
+                            onChange={(event) => updateTempoSection(section.id, { startBeat: Math.max(0, (Number(event.target.value) - 1) * BEATS_PER_BAR) })}
+                          />
+                        </label>
+                        <label>
+                          <span>끝 마디</span>
+                          <input
+                            min={1.25}
+                            step={0.25}
+                            type="number"
+                            value={Number((section.endBeat / BEATS_PER_BAR + 1).toFixed(2))}
+                            onChange={(event) => updateTempoSection(section.id, { endBeat: Math.max(0.25, (Number(event.target.value) - 1) * BEATS_PER_BAR) })}
+                          />
+                        </label>
+                        <label>
+                          <span>BPM</span>
+                          <input
+                            min={TEMPO_INPUT_MIN}
+                            max={TEMPO_INPUT_MAX}
+                            step={1}
+                            type="number"
+                            value={section.tempo}
+                            onChange={(event) => updateTempoSection(section.id, { tempo: Number(event.target.value) })}
+                          />
+                        </label>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="tempo-empty">
+                  <strong>아직 빠르기 구간이 없습니다.</strong>
+                  <span>전체 곡 BPM만 쓸 수도 있지만, 도입부와 후렴처럼 느낌이 달라지면 구간을 나눠 두는 편이 훨씬 낫습니다.</span>
+                </div>
+              )}
               <div className="tempo-view-controls">
-                <button type="button" onPointerDown={() => updateTempo(project.tempo - 1)}>−</button>
+                <button type="button" onPointerDown={() => updateTempo((selectedTempoSection?.tempo ?? project.tempo) - 1)}>−</button>
                 <input
                   aria-label="빠르기"
                   inputMode="numeric"
@@ -4606,24 +5741,36 @@ function App() {
                     if (event.key === 'Enter') event.currentTarget.blur()
                   }}
                 />
-                <button type="button" onPointerDown={() => updateTempo(project.tempo + 1)}>＋</button>
+                <button type="button" onPointerDown={() => updateTempo((selectedTempoSection?.tempo ?? project.tempo) + 1)}>＋</button>
               </div>
             </div>
           ) : (
             <div className="automix-view" aria-label="믹스 우선순위">
               <header>
                 <strong>믹스 우선순위</strong>
-                <span>컷을 나누고 구간마다 중심 트랙을 고르면 자동 믹스가 적용됩니다.</span>
+                <span>컷을 나누고 구간마다 중심 트랙을 고르면 자동 믹스가 그 구간의 밸런스를 다시 맞춥니다.</span>
               </header>
               <div className="automix-view-actions">
-                <button type="button" onPointerDown={addAutoMixSection}>＋ 컷 추가</button>
+                <button type="button" onPointerDown={addAutoMixSection}>＋ 컷 추가 (C)</button>
+                <label className="automix-genre-select">
+                  <span>장르 추천</span>
+                  <select
+                    value={autoMixGenrePreset}
+                    onChange={(event) => applyAutoMixGenrePreset(event.target.value as AutoMixGenrePreset)}
+                  >
+                    {AUTO_MIX_GENRE_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.label}</option>
+                    ))}
+                  </select>
+                </label>
                 <button type="button" disabled={isAutoMixing} onPointerDown={() => void runAutoMixTracks()}>
                   {isAutoMixing ? '자동 믹스 중...' : '자동 믹스 적용'}
                 </button>
               </div>
+              {renderAutoMixCutOverlay()}
               <div className="automix-explain">
                 <strong>자동 믹스는 트랙 음량, 구간별 음표 음량, 좌우 위치를 조정합니다.</strong>
-                <span>드럼과 베이스는 곡의 중심을 잡고, 멜로디는 앞으로, 배경 악기는 살짝 뒤로 보냅니다.</span>
+                <span>발라드, 록, 힙합 같은 장르 추천을 먼저 적용한 뒤, 컷마다 중심 트랙만 바꾸면 훨씬 빠르게 정리됩니다.</span>
               </div>
               {autoMixReport.length > 0 ? (
                 <div className="automix-report-grid">
@@ -4658,11 +5805,12 @@ function App() {
               ) : (
                 <div className="automix-view-list">
                   {(project.autoMixSections ?? []).map((section) => (
-                    <article className="automix-section" key={section.id}>
+                    <article className={section.id === selectedAutoMixSection?.id ? 'automix-section is-selected' : 'automix-section'} key={section.id}>
                       <div className="automix-section-top">
                         <input
                           aria-label="구간 이름"
                           value={section.name}
+                          onFocus={() => focusAutoMixSection(section.id)}
                           onChange={(event) => updateAutoMixSection(section.id, { name: event.target.value })}
                         />
                         <button type="button" onPointerDown={() => deleteAutoMixSection(section.id)}>삭제</button>

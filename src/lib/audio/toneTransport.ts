@@ -62,6 +62,11 @@ export async function ensureAudioReady(): Promise<void> {
   if (Tone.getContext().state !== 'running') {
     await Tone.start()
   }
+  Tone.getDestination().mute = false
+}
+
+export function silenceAllAudioOutput() {
+  Tone.getDestination().mute = true
 }
 
 function getVariant(program: number) {
@@ -307,14 +312,27 @@ function getMidiFromNoteInput(note: number) {
 
 function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
   const activeVoices = new Set<{ dispose: () => unknown }>()
+  const activeTimeouts = new Set<number>()
   const isPreview = mode === 'preview'
+  let disposed = false
+
+  function clearManagedTimeout(timeoutId: number) {
+    window.clearTimeout(timeoutId)
+    activeTimeouts.delete(timeoutId)
+  }
 
   function disposeLater(voice: { dispose: () => unknown }, waitMs: number) {
+    if (disposed) {
+      voice.dispose()
+      return
+    }
     activeVoices.add(voice)
-    window.setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
+      activeTimeouts.delete(timeoutId)
       voice.dispose()
       activeVoices.delete(voice)
     }, waitMs)
+    activeTimeouts.add(timeoutId)
   }
 
   function playNoise(
@@ -423,6 +441,9 @@ function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
   function playClap(velocity: number) {
     ;[0, 24, 48].forEach((delayMs) => {
       const timeoutId = window.setTimeout(() => {
+        activeTimeouts.delete(timeoutId)
+        activeVoices.delete(timeoutVoice)
+        if (disposed) return
         playNoise(0.08, velocity * 0.42, {
           attack: 0.001,
           decay: 0.07,
@@ -430,7 +451,9 @@ function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
           release: 0.018,
         }, 'white')
       }, delayMs)
-      activeVoices.add({ dispose: () => window.clearTimeout(timeoutId) })
+      activeTimeouts.add(timeoutId)
+      const timeoutVoice = { dispose: () => clearManagedTimeout(timeoutId) }
+      activeVoices.add(timeoutVoice)
     })
   }
 
@@ -581,6 +604,7 @@ function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
   }
 
   function playDrumHit(note: number, velocity = 0.75) {
+    if (disposed) return
     const midi = getMidiFromNoteInput(note)
     const level = isPreview ? Math.min(0.75, velocity) : velocity
 
@@ -670,15 +694,52 @@ function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
   return {
     expectsMidi: true,
     triggerAttackRelease(note, _duration, _time, velocity) {
+      if (disposed) return
       playDrumHit(note, velocity)
     },
     triggerAttack(note, _time, velocity) {
+      if (disposed) return
       playDrumHit(note, velocity)
     },
     triggerRelease() {},
     dispose() {
+      if (disposed) return
+      disposed = true
+      activeTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      activeTimeouts.clear()
       activeVoices.forEach((voice) => voice.dispose())
       activeVoices.clear()
+    },
+  }
+}
+
+function wrapPolySynthInstrument(synth: Tone.PolySynth): BeginnerInstrument {
+  let disposed = false
+
+  return {
+    triggerAttackRelease(note, duration, time, velocity) {
+      if (disposed) return
+      return synth.triggerAttackRelease(note, duration, time, velocity)
+    },
+    triggerAttack(note, time, velocity) {
+      if (disposed) return
+      return synth.triggerAttack(note, time, velocity)
+    },
+    triggerRelease(note, time) {
+      if (disposed) return
+      if (note === undefined) {
+        return synth.releaseAll(time)
+      }
+      return synth.triggerRelease(note, time)
+    },
+    dispose() {
+      if (disposed) return
+      disposed = true
+      const now = Tone.now()
+      synth.releaseAll(now)
+      synth.volume.cancelScheduledValues(now)
+      synth.volume.setValueAtTime(-96, now)
+      synth.dispose()
     },
   }
 }
@@ -692,9 +753,11 @@ function createSynthInstrument(
   const release = (playbackRelease: number, previewRelease = 0.05) =>
     isPreview ? previewRelease : playbackRelease
   const variant = program === null ? 0 : getVariant(program)
+  const createWrappedPolySynth = (options: ConstructorParameters<typeof Tone.PolySynth>[0]) =>
+    wrapPolySynthInstrument(new Tone.PolySynth(options).toDestination())
 
   if (isDrumInstrument(instrumentId)) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.MembraneSynth,
       maxPolyphony: isPreview ? 2 : 24,
       options: {
@@ -708,11 +771,11 @@ function createSynthInstrument(
           release: release(0.08 + variant * 0.025, 0.025),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program < 8) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.FMSynth,
       maxPolyphony: isPreview ? 2 : 24,
       options: {
@@ -731,11 +794,11 @@ function createSynthInstrument(
           release: release(0.18 + variant * 0.035),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 8 && program < 16) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.FMSynth,
       maxPolyphony: isPreview ? 2 : 20,
       options: {
@@ -754,11 +817,11 @@ function createSynthInstrument(
           release: release(0.12 + variant * 0.03),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 16 && program < 24) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.AMSynth,
       maxPolyphony: isPreview ? 2 : 24,
       options: {
@@ -778,11 +841,11 @@ function createSynthInstrument(
           release: release(0.1 + variant * 0.03),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 24 && program < 32) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 18,
       options: {
@@ -794,11 +857,11 @@ function createSynthInstrument(
           release: release(0.12 + variant * 0.05),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (instrumentId === 'bass' || (program !== null && program >= 32 && program <= 39)) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 18,
       options: {
@@ -810,11 +873,11 @@ function createSynthInstrument(
           release: release(0.18 + variant * 0.06, 0.04),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 40 && program < 56) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 24,
       options: {
@@ -826,11 +889,11 @@ function createSynthInstrument(
           release: release(0.45 + variant * 0.12),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (instrumentId === 'brass' || (program !== null && program >= 56 && program <= 63)) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 24,
       options: {
@@ -842,11 +905,11 @@ function createSynthInstrument(
           release: release(0.22 + variant * 0.07),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 64 && program < 80) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 20,
       options: {
@@ -858,14 +921,14 @@ function createSynthInstrument(
           release: release(0.25 + variant * 0.08),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (
     instrumentId === 'synth' ||
     (program !== null && ((program >= 80 && program <= 103) || program >= 120))
   ) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 24,
       options: {
@@ -877,11 +940,11 @@ function createSynthInstrument(
           release: release(0.22 + variant * 0.1),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 104 && program < 112) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.Synth,
       maxPolyphony: isPreview ? 2 : 16,
       options: {
@@ -893,11 +956,11 @@ function createSynthInstrument(
           release: release(0.32 + variant * 0.09),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
   if (program !== null && program >= 112 && program < 120) {
-    return new Tone.PolySynth({
+    return createWrappedPolySynth({
       voice: Tone.FMSynth,
       maxPolyphony: isPreview ? 2 : 18,
       options: {
@@ -916,17 +979,17 @@ function createSynthInstrument(
           release: release(0.12 + variant * 0.03),
         },
       },
-    }).toDestination() as BeginnerInstrument
+    })
   }
 
-  return new Tone.PolySynth({
+  return createWrappedPolySynth({
     voice: Tone.Synth,
     maxPolyphony: isPreview ? 2 : 24,
     options: {
       oscillator: { type: 'triangle' },
       envelope: { attack: 0.004, decay: 0.14, sustain: 0.24, release: release(0.85) },
     },
-  }).toDestination() as BeginnerInstrument
+  })
 }
 
 export function getPlaybackDurationMs(notes: Note[], tempo: number): number {
@@ -1029,10 +1092,26 @@ export function stopPreviewNote(preview: HeldPreview | null) {
   }, remainingMs)
 }
 
+export function stopPreviewNoteImmediately(preview: HeldPreview | null) {
+  if (!preview) return
+  preview.instrument.triggerRelease(undefined, Tone.now())
+  preview.instrument.dispose()
+}
+
 export function disposePreviewNote(preview: HeldPreview | null) {
   if (!preview) return
   const remainingMs = Math.max(0, MIN_PREVIEW_MS - (performance.now() - preview.startedAtMs))
   window.setTimeout(() => preview.instrument.dispose(), remainingMs)
+}
+
+export function stopAllPreviewAudio() {
+  oneShotPreviewToken += 1
+  if (activeOneShotPreview) {
+    window.clearTimeout(activeOneShotPreview.timeoutId)
+    activeOneShotPreview.instrument.triggerRelease(undefined, Tone.now())
+    activeOneShotPreview.instrument.dispose()
+    activeOneShotPreview = null
+  }
 }
 
 export function changePreviewNote(

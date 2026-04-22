@@ -37,6 +37,14 @@ export interface AudioClip {
   waveform?: number[]
 }
 
+export interface TempoSection {
+  id: string
+  name: string
+  startBeat: number
+  endBeat: number
+  tempo: number
+}
+
 export interface AutoMixSection {
   id: string
   name: string
@@ -75,4 +83,6 @@ export interface Project {
   notesByTrack: Record<string, Note[]>
   audioClips?: AudioClip[]
   autoMixSections?: AutoMixSection[]
+  tempoSections?: TempoSection[]
+  patternPlacements?: PatternPlacement[]
 }

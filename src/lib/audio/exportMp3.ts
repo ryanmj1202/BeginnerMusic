@@ -1,11 +1,14 @@
 import lameSource from 'lamejs/lame.min.js?raw'
 import { getProgramFromInstrumentId } from '../midi/generalMidi'
+import { expandProjectForArrangement } from '../arrangement/trackArrangement'
 import type { Note, Project, Track } from '../../types/music'
 
 const SAMPLE_RATE = 44100
 const MP3_KBPS = 160
 const ENCODE_CHUNK_SIZE = 1152
 const EXPORT_HEADROOM = 0.98
+const TEMPO_INPUT_MIN = 1
+const TEMPO_INPUT_MAX = 999
 
 type Mp3Encoder = {
   encodeBuffer: (left: Int16Array, right?: Int16Array) => Int8Array
@@ -43,6 +46,59 @@ function getProjectEndBeat(project: Project) {
   return Math.max(1, noteEndBeat, audioEndBeat)
 }
 
+function clampTempoValue(tempo: number | undefined, fallback: number) {
+  const safeTempo = Number.isFinite(tempo) ? Number(tempo) : fallback
+  return Math.max(TEMPO_INPUT_MIN, Math.min(TEMPO_INPUT_MAX, safeTempo))
+}
+
+function getTempoSegments(project: Project, totalBeats: number) {
+  const safeTotalBeats = Math.max(1, totalBeats)
+  const sections = [...(project.tempoSections ?? [])]
+    .map((section) => ({
+      startBeat: Math.max(0, Math.min(safeTotalBeats, section.startBeat ?? 0)),
+      endBeat: Math.max(0.25, Math.min(safeTotalBeats, section.endBeat ?? safeTotalBeats)),
+      tempo: clampTempoValue(section.tempo, project.tempo),
+    }))
+    .filter((section) => section.endBeat > section.startBeat)
+    .sort((left, right) => left.startBeat - right.startBeat)
+  const segments: Array<{ startBeat: number; endBeat: number; tempo: number }> = []
+  let cursor = 0
+
+  sections.forEach((section) => {
+    const startBeat = Math.max(cursor, section.startBeat)
+    const endBeat = Math.max(startBeat + 0.25, section.endBeat)
+
+    if (startBeat > cursor) {
+      segments.push({ startBeat: cursor, endBeat: startBeat, tempo: clampTempoValue(project.tempo, 120) })
+    }
+
+    segments.push({ startBeat, endBeat, tempo: section.tempo })
+    cursor = endBeat
+  })
+
+  if (cursor < safeTotalBeats) {
+    segments.push({ startBeat: cursor, endBeat: safeTotalBeats, tempo: clampTempoValue(project.tempo, 120) })
+  }
+
+  return segments.length > 0 ? segments : [{ startBeat: 0, endBeat: safeTotalBeats, tempo: clampTempoValue(project.tempo, 120) }]
+}
+
+function getSecondsBetweenBeats(project: Project, startBeat: number, endBeat: number, totalBeats: number) {
+  const segments = getTempoSegments(project, totalBeats)
+  const safeStartBeat = Math.max(0, startBeat)
+  const safeEndBeat = Math.max(safeStartBeat, endBeat)
+  let seconds = 0
+
+  segments.forEach((segment) => {
+    const overlapStart = Math.max(segment.startBeat, safeStartBeat)
+    const overlapEnd = Math.min(segment.endBeat, safeEndBeat)
+    if (overlapEnd <= overlapStart) return
+    seconds += ((overlapEnd - overlapStart) * 60) / segment.tempo
+  })
+
+  return seconds
+}
+
 function getWaveform(track: Track): OscillatorType {
   const program = getProgramFromInstrumentId(track.instrumentId)
   if (isDrumTrack(track)) return 'triangle'
@@ -63,14 +119,15 @@ function getMidiFrequency(pitch: number) {
 function scheduleNote(
   context: OfflineAudioContext,
   destination: AudioNode,
+  project: Project,
+  totalBeats: number,
   track: Track,
   note: Note,
-  tempo: number,
 ) {
-  const startSeconds = (note.startBeat * 60) / tempo
+  const startSeconds = getSecondsBetweenBeats(project, 0, note.startBeat, totalBeats)
   const durationSeconds = isDrumTrack(track)
-    ? getDrumDurationSeconds(note.pitch, Math.max(0.04, (note.durationBeats * 60) / tempo))
-    : Math.max(0.04, (note.durationBeats * 60) / tempo)
+    ? getDrumDurationSeconds(note.pitch, Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats)))
+    : Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats))
   const endSeconds = startSeconds + durationSeconds
   const oscillator = context.createOscillator()
   const gain = context.createGain()
@@ -122,16 +179,17 @@ async function decodeDataUrl(context: OfflineAudioContext, dataUrl: string) {
 function scheduleAudioClip(
   context: OfflineAudioContext,
   destination: AudioNode,
+  project: Project,
+  totalBeats: number,
   clip: NonNullable<Project['audioClips']>[number],
-  tempo: number,
   trackVolume: number,
 ) {
   return decodeDataUrl(context, clip.dataUrl).then((buffer) => {
     const source = context.createBufferSource()
     const gain = context.createGain()
     const panner = context.createStereoPanner()
-    const startSeconds = Math.max(0, (clip.startBeat * 60) / tempo)
-    const plannedDurationSeconds = Math.max(0.04, (clip.durationBeats * 60) / tempo)
+    const startSeconds = Math.max(0, getSecondsBetweenBeats(project, 0, clip.startBeat, totalBeats))
+    const plannedDurationSeconds = Math.max(0.04, getSecondsBetweenBeats(project, clip.startBeat, clip.startBeat + clip.durationBeats, totalBeats))
     const playDurationSeconds = Math.min(buffer.duration, plannedDurationSeconds)
 
     source.buffer = buffer
@@ -193,25 +251,26 @@ function encodeMp3(buffer: AudioBuffer) {
 }
 
 export async function exportMp3Project(project: Project) {
-  const tempo = Math.max(1, project.tempo || 120)
-  const durationSeconds = Math.max(1, (getProjectEndBeat(project) * 60) / tempo + 0.15)
+  const arrangedProject = expandProjectForArrangement(project)
+  const totalBeats = getProjectEndBeat(arrangedProject)
+  const durationSeconds = Math.max(1, getSecondsBetweenBeats(arrangedProject, 0, totalBeats, totalBeats) + 0.15)
   const context = new OfflineAudioContext(2, Math.ceil(durationSeconds * SAMPLE_RATE), SAMPLE_RATE)
   const master = context.createGain()
   master.gain.setValueAtTime(0.95, 0)
   master.connect(context.destination)
 
-  project.tracks.forEach((track) => {
+  arrangedProject.tracks.forEach((track) => {
     if (track.mute) return
 
-    const notes = project.notesByTrack[track.id] ?? []
-    notes.forEach((note) => scheduleNote(context, master, track, note, tempo))
+    const notes = arrangedProject.notesByTrack[track.id] ?? []
+    notes.forEach((note) => scheduleNote(context, master, arrangedProject, totalBeats, track, note))
   })
 
   await Promise.all(
-    (project.audioClips ?? []).map((clip) => {
-      const track = project.tracks.find((item) => item.id === clip.trackId)
+    (arrangedProject.audioClips ?? []).map((clip) => {
+      const track = arrangedProject.tracks.find((item) => item.id === clip.trackId)
       if (!track || track.mute) return Promise.resolve()
-      return scheduleAudioClip(context, master, clip, tempo, track.volume)
+      return scheduleAudioClip(context, master, arrangedProject, totalBeats, clip, track.volume)
     }),
   )
 

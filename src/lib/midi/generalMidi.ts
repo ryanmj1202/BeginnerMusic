@@ -133,34 +133,34 @@ const GM_NAMES = [
 
 const GM_KO_NAMES = [
   '어쿠스틱 그랜드 피아노',
-  '밝은 어쿠스틱 피아노',
-  '전자 그랜드 피아노',
-  '홍키통크 피아노',
-  '전자 피아노 1',
-  '전자 피아노 2',
+  '브라이트 어쿠스틱 피아노',
+  '일렉트릭 그랜드 피아노',
+  '혼키통크 피아노',
+  '일렉트릭 피아노 1',
+  '일렉트릭 피아노 2',
   '하프시코드',
   '클라비넷',
   '첼레스타',
   '글로켄슈필',
-  '오르골',
+  '뮤직박스',
   '비브라폰',
   '마림바',
   '실로폰',
   '튜블러 벨',
   '덜시머',
   '드로바 오르간',
-  '타악 오르간',
+  '퍼커시브 오르간',
   '록 오르간',
-  '교회 오르간',
+  '처치 오르간',
   '리드 오르간',
   '아코디언',
   '하모니카',
   '탱고 아코디언',
   '나일론 기타',
   '스틸 기타',
-  '재즈 전자 기타',
-  '클린 전자 기타',
-  '뮤트 전자 기타',
+  '재즈 일렉 기타',
+  '클린 일렉 기타',
+  '뮤트 일렉 기타',
   '오버드라이브 기타',
   '디스토션 기타',
   '기타 하모닉스',
@@ -176,16 +176,16 @@ const GM_KO_NAMES = [
   '비올라',
   '첼로',
   '콘트라베이스',
-  '트레몰로 현악',
-  '피치카토 현악',
+  '트레몰로 스트링',
+  '피치카토 스트링',
   '오케스트라 하프',
   '팀파니',
-  '현악 합주 1',
-  '현악 합주 2',
-  '신스 현악 1',
-  '신스 현악 2',
-  '합창 아',
-  '합창 우',
+  '스트링 앙상블 1',
+  '스트링 앙상블 2',
+  '신스 스트링 1',
+  '신스 스트링 2',
+  '콰이어 아아',
+  '보이스 우',
   '신스 보이스',
   '오케스트라 히트',
   '트럼펫',
@@ -193,9 +193,9 @@ const GM_KO_NAMES = [
   '튜바',
   '뮤트 트럼펫',
   '프렌치 호른',
-  '금관 섹션',
-  '신스 금관 1',
-  '신스 금관 2',
+  '브라스 섹션',
+  '신스 브라스 1',
+  '신스 브라스 2',
   '소프라노 색소폰',
   '알토 색소폰',
   '테너 색소폰',
@@ -207,35 +207,35 @@ const GM_KO_NAMES = [
   '피콜로',
   '플루트',
   '리코더',
-  '팬플루트',
-  '병 부는 소리',
+  '팬 플루트',
+  '보틀 블로우',
   '샤쿠하치',
   '휘슬',
   '오카리나',
-  '사각파 리드',
-  '톱니파 리드',
-  '칼리오페 리드',
-  '치프 리드',
-  '차랑 리드',
-  '목소리 리드',
-  '5도 리드',
-  '베이스 리드',
-  '뉴에이지 패드',
-  '따뜻한 패드',
-  '폴리신스 패드',
-  '합창 패드',
-  '보잉 패드',
-  '금속 패드',
-  '헤일로 패드',
-  '스윕 패드',
-  '비 효과음',
-  '사운드트랙 효과음',
-  '크리스탈 효과음',
-  '공간 효과음',
-  '밝기 효과음',
-  '판타지 효과음',
-  '메아리 효과음',
-  '공상과학 효과음',
+  '리드 1 스퀘어',
+  '리드 2 톱니파',
+  '리드 3 칼리오페',
+  '리드 4 치프',
+  '리드 5 차랑',
+  '리드 6 보이스',
+  '리드 7 피프스',
+  '리드 8 베이스+리드',
+  '패드 1 뉴에이지',
+  '패드 2 웜',
+  '패드 3 폴리신스',
+  '패드 4 콰이어',
+  '패드 5 보우드',
+  '패드 6 메탈릭',
+  '패드 7 헤일로',
+  '패드 8 스윕',
+  'FX 1 레인',
+  'FX 2 사운드트랙',
+  'FX 3 크리스털',
+  'FX 4 애트모스피어',
+  'FX 5 브라이트니스',
+  'FX 6 판타지',
+  'FX 7 에코스',
+  'FX 8 사이파이',
   '시타르',
   '밴조',
   '샤미센',
@@ -249,13 +249,13 @@ const GM_KO_NAMES = [
   '스틸 드럼',
   '우드블록',
   '타이코 드럼',
-  '멜로딕 탐',
+  '멜로딕 톰',
   '신스 드럼',
   '리버스 심벌',
-  '기타 프렛 소음',
-  '숨소리',
+  '기타 프렛 노이즈',
+  '브레스 노이즈',
   '파도 소리',
-  '새소리',
+  '새 지저귐',
   '전화벨',
   '헬리콥터',
   '박수',
@@ -289,25 +289,6 @@ function getFamily(program: number) {
   return 'Sound FX'
 }
 
-export function getInstrumentIcon(instrumentId: InstrumentId) {
-  const program = getProgramFromInstrumentId(instrumentId)
-  if (instrumentId === 'audio-track') return '▰'
-  if (instrumentId === 'drums') return '◉'
-  if (instrumentId === 'standard-drums') return '○'
-  if (program === null) return '◇'
-  if (program < 8) return '▥'
-  if (program < 16) return '✦'
-  if (program < 24) return '▤'
-  if (program < 32) return '◒'
-  if (program < 40) return '▰'
-  if (program < 56) return '♮'
-  if (program < 64) return '◢'
-  if (program < 80) return '♬'
-  if (program < 104) return '◇'
-  if (program < 120) return '◆'
-  return '●'
-}
-
 export function getProgramFromInstrumentId(instrumentId: InstrumentId) {
   if (instrumentId.startsWith('gm-')) {
     const program = Number(instrumentId.slice(3))
@@ -324,17 +305,36 @@ export function getProgramFromInstrumentId(instrumentId: InstrumentId) {
   return legacyMap[instrumentId] ?? null
 }
 
+export function getInstrumentIcon(instrumentId: InstrumentId) {
+  const program = getProgramFromInstrumentId(instrumentId)
+  if (instrumentId === 'audio-track') return 'AU'
+  if (instrumentId === 'drums' || instrumentId === 'standard-drums') return 'DR'
+  if (program === null) return 'SY'
+  if (program < 8) return 'PI'
+  if (program < 16) return 'CP'
+  if (program < 24) return 'OR'
+  if (program < 32) return 'GT'
+  if (program < 40) return 'BS'
+  if (program < 56) return 'ST'
+  if (program < 64) return 'BR'
+  if (program < 80) return 'WD'
+  if (program < 104) return 'SY'
+  if (program < 120) return 'PC'
+  return 'FX'
+}
+
 export function getInstrumentLabel(instrumentId: InstrumentId) {
   if (instrumentId === 'audio-track') return '오디오 파일'
-  if (instrumentId === 'drums') return '파워 드럼 세트'
-  if (instrumentId === 'standard-drums') return '스탠다드 드럼 세트'
+  if (instrumentId === 'drums') return '파워 드럼 키트'
+  if (instrumentId === 'standard-drums') return '스탠다드 드럼 키트'
   const program = getProgramFromInstrumentId(instrumentId)
-  return program === null ? '깨끗한 신스' : GM_KO_NAMES[program]
+  return program === null ? '기본 신스' : GM_KO_NAMES[program]
 }
 
 export function getSoundFontInstrumentName(instrumentId: InstrumentId) {
   if (instrumentId === 'audio-track') return null
   if (instrumentId === 'drums' || instrumentId === 'standard-drums') return null
+
   const program = getProgramFromInstrumentId(instrumentId)
   if (program === null) return null
 
