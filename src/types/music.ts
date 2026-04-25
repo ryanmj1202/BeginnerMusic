@@ -54,19 +54,21 @@ export interface AutoMixSection {
   priorities: Record<string, number>
 }
 
-export interface DrumPattern {
-  id: string
-  name: string
-  lengthBeats: number
-  notes: Note[]
-}
-
 export interface PatternPlacement {
   id: string
   trackId: string
   patternId: string
   startBeat: number
   spanBeats: number
+}
+
+export interface PatternRepeatGroup {
+  id: string
+  baseEndBeat: number
+  baseNoteIds: string[]
+  baseStartBeat: number
+  gapBeats: number
+  repeats: Array<{ noteIds: string[] }>
 }
 
 export interface Project {
@@ -85,4 +87,5 @@ export interface Project {
   autoMixSections?: AutoMixSection[]
   tempoSections?: TempoSection[]
   patternPlacements?: PatternPlacement[]
+  patternRepeatGroups?: PatternRepeatGroup[]
 }
