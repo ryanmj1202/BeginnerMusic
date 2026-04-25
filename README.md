@@ -105,3 +105,4 @@ src/
 
 - 현재 프로젝트는 단일 메인 컴포넌트(`src/App.tsx`) 중심 구조입니다.
 - 기능 분리 리팩터링은 `src/features/editor/*`로 단계적으로 진행 중입니다.
+- 해당 프로젝트는 OpenAI사의 Codex Agent를 활용했습니다.
