@@ -31,7 +31,7 @@ export const PATTERN_REPEAT_GAP_BEATS = 0.25
 export const NOTE_DRAG_SCROLL_OUTSIDE_THRESHOLD_PX = 18
 export const NOTE_DRAG_SCROLL_MAX_STEP_PX = 8
 export const NOTE_DRAG_SCROLL_SENSITIVITY_PX = 120
-export const PLAYHEAD_AUTO_SCROLL_THROTTLE_MS = 120
+export const PLAYHEAD_AUTO_SCROLL_THROTTLE_MS = 10
 export const KEYBOARD_INPUT_MAP: Record<string, number> = {
   KeyZ: 48,
   KeyS: 49,
