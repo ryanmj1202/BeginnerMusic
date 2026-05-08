@@ -22,7 +22,6 @@ type TempoPanelProps = {
   deleteTempoSection: (sectionId: string) => void
   focusTempoSection: (sectionId: string) => void
   projectTempo: number
-  renderAutoMixCutOverlay: () => ReactNode
   renderTempoSectionOverlay: () => ReactNode
   rollSurfaceStyle: CSSProperties
   selectedTempoSection: TempoSection | null
@@ -41,7 +40,6 @@ export function TempoPanel({
   deleteTempoSection,
   focusTempoSection,
   projectTempo,
-  renderAutoMixCutOverlay,
   renderTempoSectionOverlay,
   rollSurfaceStyle,
   selectedTempoSection,
@@ -51,46 +49,47 @@ export function TempoPanel({
   updateTempo,
   updateTempoSection,
 }: TempoPanelProps) {
+  const currentTempo = selectedTempoSection?.tempo ?? projectTempo
+
   return (
-    <div className="tempo-view" aria-label="템포 편집" style={rollSurfaceStyle}>
+    <div className="tempo-view" aria-label="템포" style={rollSurfaceStyle}>
       <header>
-        <strong>빠르기</strong>
-        <span>기본 BPM만 바꾸는 화면이 아니라, 구간별 빠르기 흐름을 나눠서 관리하는 화면입니다.</span>
+        <strong>템포</strong>
+        <span>곡 전체나 선택한 구간의 BPM을 조절합니다.</span>
       </header>
       <div className="tempo-overview">
         <article>
           <strong>{projectTempo}</strong>
-          <span>기본 BPM</span>
+          <span>기본 템포</span>
         </article>
         <article>
           <strong>{tempoSections.length}</strong>
-          <span>빠르기 구간</span>
+          <span>구간 수</span>
         </article>
         <article>
-          <strong>{selectedTempoSection ? selectedTempoSection.tempo : projectTempo}</strong>
-          <span>{selectedTempoSection ? '선택한 구간 BPM' : '현재 편집 BPM'}</span>
+          <strong>{currentTempo}</strong>
+          <span>{selectedTempoSection ? '선택 구간' : '현재 BPM'}</span>
         </article>
       </div>
       <div className="tempo-graph" onPointerDown={changeTempoFromGraph}>
-        {renderAutoMixCutOverlay()}
         {renderTempoSectionOverlay()}
         <span className="tempo-graph-min">{TEMPO_GRAPH_MIN}</span>
         <span className="tempo-graph-max">{TEMPO_GRAPH_MAX}</span>
         <span
           className="tempo-graph-fill"
-          style={{ height: `${Math.min(100, Math.max(0, (((selectedTempoSection?.tempo ?? projectTempo) - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100))}%` }}
+          style={{ height: `${Math.min(100, Math.max(0, ((currentTempo - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100))}%` }}
         />
         <span
           className="tempo-graph-handle"
-          style={{ bottom: `${Math.min(100, Math.max(0, (((selectedTempoSection?.tempo ?? projectTempo) - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100))}%` }}
+          style={{ bottom: `${Math.min(100, Math.max(0, ((currentTempo - TEMPO_GRAPH_MIN) / (TEMPO_GRAPH_MAX - TEMPO_GRAPH_MIN)) * 100))}%` }}
         >
-          {selectedTempoSection ? `${selectedTempoSection.tempo} BPM` : `${projectTempo} BPM`}
+          {currentTempo} BPM
         </span>
       </div>
       <div className="tempo-section-actions">
-        <button type="button" onPointerDown={() => addTempoSection()}>＋ 빠르기 구간 추가</button>
-        <button type="button" onPointerDown={() => setSelectedTempoSectionId(null)}>기본 BPM 편집</button>
-        <span>구간을 하나 만든 뒤 선택하면 그래프와 숫자 입력으로 그 구간 BPM을 바로 다듬을 수 있습니다.</span>
+        <button type="button" onPointerDown={() => addTempoSection()}>＋ 구간 추가</button>
+        <button type="button" onPointerDown={() => setSelectedTempoSectionId(null)}>전체 BPM</button>
+        <span>구간을 선택하면 그 부분의 BPM만 따로 바꿀 수 있습니다.</span>
       </div>
       {tempoSections.length > 0 ? (
         <div className="tempo-section-list">
@@ -98,7 +97,7 @@ export function TempoPanel({
             <article className={section.id === selectedTempoSection?.id ? 'tempo-section-card is-selected' : 'tempo-section-card'} key={section.id}>
               <div className="tempo-section-top">
                 <input
-                  aria-label="빠르기 구간 이름"
+                  aria-label="구간 이름"
                   value={section.name}
                   onFocus={() => focusTempoSection(section.id)}
                   onChange={(event) => updateTempoSection(section.id, { name: event.target.value })}
@@ -107,7 +106,7 @@ export function TempoPanel({
               </div>
               <div className="tempo-section-grid">
                 <label>
-                  <span>시작 마디</span>
+                  <span>시작</span>
                   <input
                     min={1}
                     step={0.25}
@@ -117,7 +116,7 @@ export function TempoPanel({
                   />
                 </label>
                 <label>
-                  <span>끝 마디</span>
+                  <span>끝</span>
                   <input
                     min={1.25}
                     step={0.25}
@@ -143,14 +142,14 @@ export function TempoPanel({
         </div>
       ) : (
         <div className="tempo-empty">
-          <strong>아직 빠르기 구간이 없습니다.</strong>
-          <span>전체 곡 BPM만 쓸 수도 있지만, 도입부와 후렴처럼 느낌이 달라지면 구간을 나눠 두는 편이 훨씬 낫습니다.</span>
+          <strong>아직 나눈 구간이 없습니다.</strong>
+          <span>필요 없으면 전체 BPM만 바꿔도 됩니다.</span>
         </div>
       )}
       <div className="tempo-view-controls">
-        <button type="button" onPointerDown={() => updateTempo((selectedTempoSection?.tempo ?? projectTempo) - 1)}>−</button>
+        <button type="button" onPointerDown={() => updateTempo(currentTempo - 1)}>−</button>
         <input
-          aria-label="빠르기"
+          aria-label="BPM"
           inputMode="numeric"
           type="text"
           value={tempoInput}
@@ -160,7 +159,7 @@ export function TempoPanel({
             if (event.key === 'Enter') event.currentTarget.blur()
           }}
         />
-        <button type="button" onPointerDown={() => updateTempo((selectedTempoSection?.tempo ?? projectTempo) + 1)}>＋</button>
+        <button type="button" onPointerDown={() => updateTempo(currentTempo + 1)}>＋</button>
       </div>
     </div>
   )

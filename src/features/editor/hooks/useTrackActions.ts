@@ -48,6 +48,7 @@ export function useTrackActions({
         volume: 0.85,
         pan: 0,
         mute: false,
+        solo: false,
         channel: Math.min(16, current.tracks.length + 1),
         color: TRACK_COLORS[current.tracks.length % TRACK_COLORS.length],
       }
@@ -67,14 +68,25 @@ export function useTrackActions({
 
   function updateTrack(trackId: string, updates: Partial<Track>) {
     setProject((current) => {
+      const nextSoloTrackId = updates.solo ? trackId : null
       let changed = false
 
       const tracks = current.tracks.map((track) => {
+        if (nextSoloTrackId && track.id !== nextSoloTrackId && track.solo) {
+          changed = true
+          return {
+            ...track,
+            solo: false,
+          }
+        }
+
         if (track.id !== trackId) return track
 
         const nextTrack = {
           ...track,
           ...updates,
+          ...(updates.solo ? { mute: false } : null),
+          ...(updates.mute ? { solo: false } : null),
         }
 
         if (
@@ -82,6 +94,7 @@ export function useTrackActions({
           nextTrack.volume !== track.volume ||
           nextTrack.pan !== track.pan ||
           nextTrack.mute !== track.mute ||
+          nextTrack.solo !== track.solo ||
           nextTrack.channel !== track.channel ||
           nextTrack.name !== track.name ||
           nextTrack.color !== track.color

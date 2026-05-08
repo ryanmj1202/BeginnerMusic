@@ -7,10 +7,11 @@ export interface Note {
   durationBeats: number
   velocity: number
   pitchBend?: number
+  modulation?: number
   volume?: number
   pan?: number
   expression?: number
-  modulation?: number
+  reverb?: number
 }
 
 export interface Track {
@@ -21,6 +22,7 @@ export interface Track {
   volume: number
   pan?: number
   mute: boolean
+  solo: boolean
   channel?: number
   color?: string
 }
@@ -45,13 +47,31 @@ export interface TempoSection {
   tempo: number
 }
 
+export type AutoMixGenre = 'balanced' | 'ballad' | 'rock' | 'hiphop' | 'edm' | 'orchestra'
+export type AutoMixPriorityMode = 'genre' | 'custom'
+
 export interface AutoMixSection {
   id: string
   name: string
   startBeat: number
   endBeat: number
-  intensity: number
-  priorities: Record<string, number>
+  genre: AutoMixGenre
+  priorityMode: AutoMixPriorityMode
+  strength: number
+  reverb?: number
+  stereoWidth?: number
+  brightness?: number
+  trackPriorities: Record<string, number>
+}
+
+export interface AutoMixSettings {
+  strength: number
+  reverb: number
+  stereoWidth: number
+  brightness: number
+  recommendedGenre?: AutoMixGenre
+  trackOrder?: string[]
+  trackPriorities: Record<string, number>
 }
 
 export interface PatternPlacement {
@@ -84,8 +104,9 @@ export interface Project {
   tracks: Track[]
   notesByTrack: Record<string, Note[]>
   audioClips?: AudioClip[]
-  autoMixSections?: AutoMixSection[]
   tempoSections?: TempoSection[]
+  autoMixSettings?: AutoMixSettings
+  autoMixSections?: AutoMixSection[]
   patternPlacements?: PatternPlacement[]
   patternRepeatGroups?: PatternRepeatGroup[]
 }

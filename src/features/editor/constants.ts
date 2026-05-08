@@ -78,7 +78,7 @@ export const DRUM_KEYBOARD_PITCHES = [
   52, 53, 54, 56, 60, 61, 62, 63, 64, 65,
   66, 67, 68, 69, 70, 71, 72, 75, 76, 81,
 ]
-export const BASE_LOW_PITCH = 48
+export const BASE_LOW_PITCH = 24
 export const BASE_HIGH_PITCH = 84
 export const PITCH_RANGE_MARGIN = 4
 export const PITCHES = Array.from({ length: BASE_HIGH_PITCH - BASE_LOW_PITCH + 1 }, (_, index) => BASE_HIGH_PITCH - index)
@@ -211,24 +211,26 @@ export const INSTRUMENT_CATEGORY_IMAGES: Record<string, InstrumentId> = {
   Drums: 'drums',
 }
 export const TRACK_COLORS = ['#5365d9', '#21a67a', '#d69b32', '#c95c8c', '#6a78f0', '#9b6bd3']
-export const AUTO_MIX_GENRE_PRESETS = [
-  { id: 'default', label: '기본 균형' },
-  { id: 'ballad', label: '발라드' },
-  { id: 'rock', label: '록 밴드' },
-  { id: 'hiphop', label: '힙합' },
-  { id: 'edm', label: 'EDM' },
-  { id: 'orchestra', label: '오케스트라' },
-] as const
 export const TERMINOLOGY_HELP = [
   {
-    term: '소리 세기',
-    label: '소리 세기',
+    term: '세게 치기',
+    label: '세게 치기',
     description: '음표 하나가 얼마나 세게 연주되는지 정합니다.',
   },
   {
-    term: '음높이 휘기',
-    label: '음높이 휘기',
+    term: '음정 휘기',
+    label: '음정 휘기',
     description: '음이 위아래로 미끄러지듯 변하는 느낌입니다.',
+  },
+  {
+    term: '음정 떨림',
+    label: '음정 떨림',
+    description: '음높이가 빠르고 작게 흔들리는 효과입니다.',
+  },
+  {
+    term: '울림',
+    label: '울림',
+    description: '소리가 공간에 퍼지고 남는 정도를 정합니다.',
   },
   {
     term: '음량',
@@ -241,14 +243,9 @@ export const TERMINOLOGY_HELP = [
     description: '소리가 왼쪽, 가운데, 오른쪽 중 어디서 들릴지 정합니다.',
   },
   {
-    term: '연주 느낌',
-    label: '연주 느낌',
+    term: '연주 강약',
+    label: '연주 강약',
     description: '연주 중간의 세밀한 크기 변화를 다룹니다.',
-  },
-  {
-    term: '떨림',
-    label: '떨림',
-    description: '비브라토처럼 음에 흔들림을 더하는 값입니다.',
   },
   {
     term: '음표 정보',

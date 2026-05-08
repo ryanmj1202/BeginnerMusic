@@ -60,6 +60,7 @@ export function createInitialProject(): Project {
         volume: 0.85,
         pan: 0,
         mute: false,
+        solo: false,
         channel: 1,
         color: TRACK_COLORS[0],
       },
@@ -68,7 +69,6 @@ export function createInitialProject(): Project {
       [firstTrackId]: [],
     },
     audioClips: [],
-    autoMixSections: [],
     tempoSections: [],
     patternPlacements: [],
     patternRepeatGroups: [],
@@ -89,6 +89,7 @@ export function normalizeProject(project: Project): Project {
       kind: track.kind ?? (track.instrumentId === 'audio-track' ? 'audio' as const : 'instrument' as const),
       pan: track.pan ?? 0,
       mute: track.mute ?? false,
+      solo: track.solo ?? false,
       channel: track.channel ?? (isDrumInstrument(track.instrumentId) ? 10 : Math.min(16, index + 1)),
       color: track.color ?? TRACK_COLORS[index % TRACK_COLORS.length],
     }))
@@ -101,13 +102,24 @@ export function normalizeProject(project: Project): Project {
         volume: 0.85,
         pan: 0,
         mute: false,
+        solo: false,
         channel: 1,
         color: TRACK_COLORS[0],
       },
     ]
-  const selectedTrackId = tracks.some((track) => track.id === project.selectedTrackId)
+  const soloTrackId = tracks.find((track) => track.solo)?.id ?? null
+  const normalizedTracks = soloTrackId
+    ? tracks.map((track) => (
+      track.id === soloTrackId
+        ? track
+        : track.solo
+          ? { ...track, solo: false }
+          : track
+    ))
+    : tracks
+  const selectedTrackId = normalizedTracks.some((track) => track.id === project.selectedTrackId)
     ? project.selectedTrackId
-    : tracks[0].id
+    : normalizedTracks[0].id
 
   return {
     ...project,
@@ -119,30 +131,23 @@ export function normalizeProject(project: Project): Project {
     selectedNoteId: project.selectedNoteId ?? null,
     lengthBeats: Math.max(DEFAULT_PROJECT_LENGTH_BEATS, project.lengthBeats ?? DEFAULT_PROJECT_LENGTH_BEATS),
     theme: 'dark',
-    tracks,
+    tracks: normalizedTracks,
     notesByTrack: {
-      ...Object.fromEntries(tracks.map((track) => [track.id, []])),
+      ...Object.fromEntries(normalizedTracks.map((track) => [track.id, []])),
       ...(project.notesByTrack ?? {}),
     },
     audioClips: (project.audioClips ?? []).filter((clip) =>
-      tracks.some((track) => track.id === clip.trackId) && clip.dataUrl,
+      normalizedTracks.some((track) => track.id === clip.trackId) && clip.dataUrl,
     ).map((clip) => ({
       ...clip,
       waveform: clip.waveform ?? [],
     })),
     patternPlacements: (project.patternPlacements ?? []).filter((placement) =>
-      tracks.some((track) => track.id === placement.trackId),
+      normalizedTracks.some((track) => track.id === placement.trackId),
     ).map((placement) => ({
       ...placement,
       spanBeats: Math.max(MIN_DURATION_BEATS, placement.spanBeats ?? DEFAULT_PROJECT_LENGTH_BEATS),
       startBeat: Math.max(0, placement.startBeat ?? 0),
-    })),
-    autoMixSections: (project.autoMixSections ?? []).map((section) => ({
-      ...section,
-      intensity: Math.min(1, Math.max(0, section.intensity ?? 0.7)),
-      priorities: section.priorities ?? {},
-      startBeat: Math.max(0, section.startBeat ?? 0),
-      endBeat: Math.max(section.startBeat ?? 0, section.endBeat ?? DEFAULT_PROJECT_LENGTH_BEATS),
     })),
     tempoSections: (project.tempoSections ?? []).map((section) => ({
       ...section,
@@ -344,7 +349,6 @@ export function hasUndoableProjectChange(current: Project, next: Project) {
     current.tracks !== next.tracks ||
     current.notesByTrack !== next.notesByTrack ||
     current.audioClips !== next.audioClips ||
-    current.autoMixSections !== next.autoMixSections ||
     current.tempoSections !== next.tempoSections ||
     current.patternPlacements !== next.patternPlacements
   )

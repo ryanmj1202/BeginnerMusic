@@ -132,10 +132,11 @@ export function useKeyboardRecording({
       durationBeats: MIN_DURATION_BEATS,
       velocity: 0.78,
       pitchBend: 0,
+      modulation: 0,
       volume: 1,
       pan: 0,
       expression: 1,
-      modulation: 0,
+      reverb: 0,
     }
 
     keyboardRecordingRef.current.set(code, {

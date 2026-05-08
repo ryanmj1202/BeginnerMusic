@@ -1,7 +1,2 @@
-import { EditorApp } from './EditorApp'
+﻿export { EditorApp as default } from './features/editor/EditorApp'
 
-function App() {
-  return <EditorApp />
-}
-
-export default App

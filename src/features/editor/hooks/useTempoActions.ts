@@ -110,7 +110,7 @@ export function useTempoActions({
 
     return {
       id: createId('tempo'),
-      name: `빠르기 구간 ${tempoSections.length + 1}`,
+      name: `템포 구간 ${tempoSections.length + 1}`,
       startBeat,
       endBeat,
       tempo: Math.round(getTempoAtBeat(projectRef.current, startBeat, totalBeats)),

@@ -1,9 +1,17 @@
 ﻿import * as Tone from 'tone'
-import { getProgramFromInstrumentId, getSoundFontInstrumentName } from '../midi/generalMidi'
+import {
+  FLUID_SOUNDFONT_BASE_URL,
+  ORCHESTRAL_SOUNDFONT_BASE_URL,
+  getOnlineSoundFontBaseUrl,
+  getProgramFromInstrumentId,
+  getSoundFontInstrumentName,
+} from '../midi/generalMidi'
 import type { InstrumentId, Note } from '../../types/music'
 import { createSf2DrumKitInstrument } from './sf2DrumKit'
 
 export type BeginnerInstrument = {
+  connect?: (node: unknown) => unknown
+  disconnect?: () => unknown
   expectsMidi?: boolean
   readyTimeoutMs?: number
   ready?: Promise<void>
@@ -26,8 +34,6 @@ export type HeldPreview = {
 
 const RELEASE_BUFFER_SECONDS = 2
 const MIN_PREVIEW_MS = 250
-const FLUID_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/'
-const ORCHESTRAL_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/'
 const SOUNDFONT_SAMPLE_URLS = {
   C2: 'C2.mp3',
   C3: 'C3.mp3',
@@ -146,6 +152,9 @@ function trimSoundFontCache() {
 }
 
 function getSoundFontBaseUrl(instrumentId: InstrumentId) {
+  const onlineBaseUrl = getOnlineSoundFontBaseUrl(instrumentId)
+  if (onlineBaseUrl) return onlineBaseUrl
+
   const program = getProgramFromInstrumentId(instrumentId)
   if (program === null) return FLUID_SOUNDFONT_BASE_URL
   if (program >= 40 && program < 80) return ORCHESTRAL_SOUNDFONT_BASE_URL
@@ -190,11 +199,119 @@ function getSoundFontCacheEntry(soundFontName: string, baseUrl: string) {
       entry.failed = true
       resolveReady()
     },
-  }).toDestination()
+  })
   entry.sampler = sampler
   soundFontCache.set(cacheKey, entry)
   trimSoundFontCache()
   return entry
+}
+
+function createIsolatedSoundFontInstrument(
+  instrumentId: InstrumentId,
+  fallback: BeginnerInstrument,
+): BeginnerInstrument {
+  const soundFontName = getSoundFontInstrumentName(instrumentId)
+  if (!soundFontName) return fallback
+
+  let disposed = false
+  let isReady = false
+  const activeNotes = new Map<number, number>()
+  const releaseTimeouts = new Set<number>()
+  const destination = Tone.getDestination()
+  let outputNode: unknown = destination
+  let resolveReady = () => {}
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve
+  })
+  const sampler = new Tone.Sampler({
+    urls: SOUNDFONT_SAMPLE_URLS,
+    baseUrl: `${getSoundFontBaseUrl(instrumentId)}${soundFontName}-mp3/`,
+    onload: () => {
+      isReady = true
+      resolveReady()
+    },
+    onerror: resolveReady,
+  })
+
+  sampler.connect(destination)
+
+  function addTrackedNote(note: number) {
+    activeNotes.set(note, (activeNotes.get(note) ?? 0) + 1)
+  }
+
+  function releaseTrackedNote(note: number, time?: number) {
+    const nextCount = (activeNotes.get(note) ?? 1) - 1
+    if (nextCount > 0) {
+      activeNotes.set(note, nextCount)
+      return
+    }
+    activeNotes.delete(note)
+    if (isReady) sampler.triggerRelease(note, time)
+  }
+
+  function scheduleTrackedRelease(note: number, duration: number, time?: number) {
+    addTrackedNote(note)
+    const waitMs = Math.max(0, ((time ?? Tone.now()) - Tone.now() + duration + 0.08) * 1000)
+    const timeoutId = window.setTimeout(() => {
+      releaseTrackedNote(note, Tone.now())
+      releaseTimeouts.delete(timeoutId)
+    }, waitMs)
+    releaseTimeouts.add(timeoutId)
+  }
+
+  return {
+    ready,
+    connect(node) {
+      if (outputNode === node) return node
+      sampler.disconnect(outputNode as any)
+      sampler.connect(node as any)
+      outputNode = node
+      return node
+    },
+    disconnect() {
+      if (outputNode === destination) return destination
+      sampler.disconnect(outputNode as any)
+      sampler.connect(destination)
+      outputNode = destination
+      return destination
+    },
+    triggerAttackRelease(note, duration, time, velocity) {
+      if (!isReady) return fallback.triggerAttackRelease(note, duration, time, velocity)
+      scheduleTrackedRelease(note, duration, time)
+      return sampler.triggerAttackRelease(note, duration, time, velocity)
+    },
+    triggerAttack(note, time, velocity) {
+      if (!isReady) return fallback.triggerAttack(note, time, velocity)
+      addTrackedNote(note)
+      return sampler.triggerAttack(note, time, velocity)
+    },
+    triggerRelease(note, time) {
+      fallback.triggerRelease(note, time)
+      if (note === undefined) {
+        Array.from(activeNotes.keys()).forEach((activeNote) => {
+          activeNotes.set(activeNote, 1)
+          releaseTrackedNote(activeNote, time)
+        })
+        activeNotes.clear()
+        return
+      }
+      return releaseTrackedNote(note, time)
+    },
+    dispose() {
+      if (disposed) return
+      disposed = true
+      releaseTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      releaseTimeouts.clear()
+      Array.from(activeNotes.keys()).forEach((activeNote) => {
+        activeNotes.set(activeNote, 1)
+        releaseTrackedNote(activeNote, Tone.now())
+      })
+      activeNotes.clear()
+      fallback.dispose()
+      sampler.disconnect()
+      sampler.dispose()
+    },
+  }
 }
 
 function createSoundFontInstrument(
@@ -211,7 +328,11 @@ function createSoundFontInstrument(
   let disposed = false
   const activeNotes = new Map<number, number>()
   const releaseTimeouts = new Set<number>()
+  const destination = Tone.getDestination()
+  let outputNode: unknown = destination
   entry.activeUsers += 1
+
+  entry.sampler.connect(destination)
 
   function addTrackedNote(note: number) {
     activeNotes.set(note, (activeNotes.get(note) ?? 0) + 1)
@@ -241,6 +362,24 @@ function createSoundFontInstrument(
 
   return {
     ready: entry.ready,
+    connect(node) {
+      if (outputNode === node) return node
+      if (outputNode !== destination) {
+        entry.sampler.disconnect(outputNode as any)
+      } else {
+        entry.sampler.disconnect(destination)
+      }
+      const target = node as any
+      entry.sampler.connect(target)
+      outputNode = target
+      return node
+    },
+    disconnect() {
+      if (outputNode === destination) return destination
+      entry.sampler.disconnect(outputNode as any)
+      outputNode = destination
+      return destination
+    },
     triggerAttackRelease(note, duration, time, velocity) {
       if (!entry.isReady || entry.failed) {
         return fallback.triggerAttackRelease(note, duration, time, velocity)
@@ -282,6 +421,9 @@ function createSoundFontInstrument(
       })
       activeNotes.clear()
       fallback.dispose()
+      if (outputNode !== destination) {
+        entry.sampler.disconnect(outputNode as any)
+      }
       entry.activeUsers = Math.max(0, entry.activeUsers - 1)
       entry.lastUsed = performance.now()
       trimSoundFontCache()
@@ -292,6 +434,7 @@ function createSoundFontInstrument(
 export function createInstrument(
   instrumentId: InstrumentId,
   mode: InstrumentMode = 'playback',
+  options: { isolatedSoundFont?: boolean; soundFont?: boolean } = {},
 ): BeginnerInstrument {
   if (isDrumInstrument(instrumentId)) {
     return createSf2DrumKitInstrument(
@@ -302,6 +445,8 @@ export function createInstrument(
   }
 
   const fallback = createSynthInstrument(instrumentId, mode)
+  if (options.soundFont === false) return fallback
+  if (options.isolatedSoundFont) return createIsolatedSoundFontInstrument(instrumentId, fallback)
   return createSoundFontInstrument(instrumentId, fallback)
 }
 
@@ -715,8 +860,26 @@ function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
 
 function wrapPolySynthInstrument(synth: Tone.PolySynth): BeginnerInstrument {
   let disposed = false
+  const destination = Tone.getDestination()
+  let outputNode: unknown = destination
+  synth.connect(destination)
 
   return {
+    connect(node) {
+      if (outputNode === node) return node
+      synth.disconnect()
+      const target = node as any
+      synth.connect(target)
+      outputNode = target
+      return node
+    },
+    disconnect() {
+      if (outputNode === destination) return destination
+      synth.disconnect()
+      synth.connect(destination)
+      outputNode = destination
+      return destination
+    },
     triggerAttackRelease(note, duration, time, velocity) {
       if (disposed) return
       return synth.triggerAttackRelease(note, duration, time, velocity)
@@ -754,7 +917,7 @@ function createSynthInstrument(
     isPreview ? previewRelease : playbackRelease
   const variant = program === null ? 0 : getVariant(program)
   const createWrappedPolySynth = (options: ConstructorParameters<typeof Tone.PolySynth>[0]) =>
-    wrapPolySynthInstrument(new Tone.PolySynth(options).toDestination())
+    wrapPolySynthInstrument(new Tone.PolySynth(options))
 
   if (isDrumInstrument(instrumentId)) {
     return createWrappedPolySynth({
@@ -1134,6 +1297,7 @@ export async function previewNote(
   pitch: number,
   velocity = 0.75,
   durationSeconds = 0.28,
+  pan = 0,
 ) {
   const previewToken = ++oneShotPreviewToken
   await ensureAudioReady()
@@ -1154,12 +1318,23 @@ export async function previewNote(
   }
 
   const noteInput = instrument.expectsMidi ? pitch : Tone.Frequency(pitch, 'midi').toFrequency()
-  instrument.triggerAttackRelease(
-    noteInput,
-    durationSeconds,
-    Tone.now(),
-    velocity,
-  )
+  if (Math.abs(pan) > 0.01) {
+    const panner = new Tone.Panner(Math.max(-1, Math.min(1, pan))).toDestination()
+    instrument.disconnect?.()
+    instrument.connect?.(panner)
+    instrument.triggerAttackRelease(noteInput, durationSeconds, Tone.now(), velocity)
+    const timeoutId = window.setTimeout(() => {
+      panner.dispose()
+      instrument.dispose()
+      if (activeOneShotPreview?.instrument === instrument) {
+        activeOneShotPreview = null
+      }
+    }, Math.max(900, durationSeconds * 1000 + 650))
+    activeOneShotPreview = { instrument, timeoutId }
+    return
+  }
+
+  instrument.triggerAttackRelease(noteInput, durationSeconds, Tone.now(), velocity)
   const timeoutId = window.setTimeout(() => {
     instrument.dispose()
     if (activeOneShotPreview?.instrument === instrument) {

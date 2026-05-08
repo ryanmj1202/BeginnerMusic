@@ -29,7 +29,7 @@ export function usePlaybackRefs() {
   const activeTimeoutsRef = useRef<number[]>([])
   const activeIntervalsRef = useRef<number[]>([])
   const activeAudioElementsRef = useRef<HTMLAudioElement[]>([])
-  const activeAudioNodesRef = useRef<Array<{ gain: GainNode; panner: StereoPannerNode; source: AudioBufferSourceNode }>>([])
+  const activeAudioNodesRef = useRef<Array<{ gain: GainNode; panner: StereoPannerNode; source: AudioScheduledSourceNode }>>([])
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
   const recordingStartBeatRef = useRef(0)
@@ -58,7 +58,6 @@ export function usePlaybackRefs() {
   const pointerMoveFrameRef = useRef(0)
   const pendingPointerMoveRef = useRef<PendingPointerMove | null>(null)
   const interactionHandlersRef = useRef<InteractionHandlers>({
-    addAutoMixSection: () => { },
     copySelectedNotes: () => { },
     cutSelectedNotes: () => { },
     deleteSelectedNote: () => { },
@@ -87,8 +86,7 @@ export function usePlaybackRefs() {
   const detailGraphDragRef = useRef<DetailGraphDrag | null>(null)
   const keyPreviewRef = useRef({ active: false })
   const playbackPressedPitchCountsRef = useRef<Map<number, number>>(new Map())
-  const activeEditorTabRef = useRef<'piano-roll' | 'arrange' | 'tempo' | 'automix'>('piano-roll')
-  const autoMixPanelOpenRef = useRef(false)
+  const activeEditorTabRef = useRef<'piano-roll' | 'arrange' | 'tempo'>('piano-roll')
   const otherNotesByPitchCacheRef = useRef<OtherNotesByPitchCache | null>(null)
 
   return {
@@ -100,7 +98,6 @@ export function usePlaybackRefs() {
     activePlaybackTracksRef,
     activeTimeoutsRef,
     audioFileInputRef,
-    autoMixPanelOpenRef,
     detailGraphDragRef,
     detailGraphSvgRef,
     eraseRef,

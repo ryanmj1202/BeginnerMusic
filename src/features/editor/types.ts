@@ -1,14 +1,13 @@
 import type { createInstrument } from '../../lib/audio/toneTransport'
 import type { Note, PatternRepeatGroup } from '../../types/music'
 import type {
-  AUTO_MIX_GENRE_PRESETS,
   NOTE_DIVISIONS,
   ROLL_ZOOM_LEVELS,
 } from './constants'
 
 export type PlaybackInstrument = ReturnType<typeof createInstrument>
 
-export type EditorTab = 'piano-roll' | 'arrange' | 'tempo' | 'automix'
+export type EditorTab = 'piano-roll' | 'arrange' | 'tempo' | 'auto-mix'
 
 export type ToolMode = 'draw' | 'erase' | 'select' | 'lasso'
 
@@ -16,15 +15,14 @@ export type NoteDivision = (typeof NOTE_DIVISIONS)[number]
 
 export type RollZoom = (typeof ROLL_ZOOM_LEVELS)[number]
 
-export type AutoMixGenrePreset = (typeof AUTO_MIX_GENRE_PRESETS)[number]['id']
-
 export type EditableNoteControlKey =
   | 'velocity'
   | 'pitchBend'
+  | 'modulation'
   | 'volume'
   | 'pan'
   | 'expression'
-  | 'modulation'
+  | 'reverb'
 
 export type TrackNote = Note & {
   trackId: string
@@ -157,19 +155,14 @@ export type DetailGraphDrag = {
 
 export type ActivePlaybackTrack = {
   id: string
+  effectInstrument?: PlaybackInstrument
+  instrumentId: string
   instrument: PlaybackInstrument
   isDrum: boolean
   notes: Note[]
   nextIndex: number
-}
-
-export type AutoMixReportItem = {
-  afterPan: number
-  afterVolume: number
-  beforeVolume: number
-  noteChanges: number
-  role: string
-  trackId: string
+  pan?: number
+  panner?: { disconnect: () => unknown; dispose: () => unknown }
 }
 
 export type OtherNotesByPitchCache = {
@@ -180,7 +173,6 @@ export type OtherNotesByPitchCache = {
 }
 
 export type InteractionHandlers = {
-  addAutoMixSection: () => void
   copySelectedNotes: () => void
   cutSelectedNotes: () => void
   deleteSelectedNote: () => void

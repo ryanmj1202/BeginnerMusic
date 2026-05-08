@@ -4,7 +4,7 @@
 
 BeginnerMusic is a web-based music composition tool designed to make creating music easier for everyone.
 
-Traditional DAWs can feel overwhelming because of complex interfaces, difficult terminology, and tedious mixing processes. BeginnerMusic solves these problems by simplifying music production and providing intuitive tools such as **AutoMix**.
+Traditional DAWs can feel overwhelming because of complex interfaces, difficult terminology, and tedious mixing processes. BeginnerMusic solves these problems by simplifying music production and providing intuitive tools.
 
 ---
 
@@ -17,14 +17,6 @@ Traditional DAWs can feel overwhelming because of complex interfaces, difficult 
 - Pattern repeat support
 - Multi-track editing
 
-### 🧠 AutoMix
-Automatically balances track volumes for a cleaner sound.
-
-Features include:
-- Melody prominence preservation
-- Volume balancing between instruments
-- Clipping prevention
-- Beginner-friendly automatic adjustments
 
 ### 🇰🇷 Beginner-Friendly UX
 - Simplified terminology
@@ -43,18 +35,6 @@ Features include:
 
 ---
 
-## 🧪 AutoMix Algorithm
-
-BeginnerMusic uses an algorithm-based AutoMix system instead of AI.
-
-The algorithm includes:
-
-- RMS-based loudness calculation
-- Melody boost logic
-- Instrument balancing
-- Peak-based clipping prevention
-
----
 
 ## 🏗️ Project Structure
 

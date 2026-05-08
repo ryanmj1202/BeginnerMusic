@@ -1,5 +1,9 @@
 import type { InstrumentId } from '../../types/music'
 
+export const FLUID_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/'
+export const ORCHESTRAL_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/'
+const ONLINE_SOUNDFONT_PREFIX = 'online-sf:'
+
 const GM_NAMES = [
   'Acoustic Grand Piano',
   'Bright Acoustic Piano',
@@ -290,6 +294,8 @@ function getFamily(program: number) {
 }
 
 export function getProgramFromInstrumentId(instrumentId: InstrumentId) {
+  if (isOnlineSoundFontInstrument(instrumentId)) return null
+
   if (instrumentId.startsWith('gm-')) {
     const program = Number(instrumentId.slice(3))
     return Number.isInteger(program) && program >= 0 && program <= 127 ? program : null
@@ -303,6 +309,38 @@ export function getProgramFromInstrumentId(instrumentId: InstrumentId) {
   }
 
   return legacyMap[instrumentId] ?? null
+}
+
+export function createOnlineSoundFontInstrumentId(baseUrl: string, soundFontName: string) {
+  return `${ONLINE_SOUNDFONT_PREFIX}${encodeURIComponent(baseUrl)}:${encodeURIComponent(soundFontName)}`
+}
+
+export function isOnlineSoundFontInstrument(instrumentId: InstrumentId) {
+  return instrumentId.startsWith(ONLINE_SOUNDFONT_PREFIX)
+}
+
+export function parseOnlineSoundFontInstrumentId(instrumentId: InstrumentId) {
+  if (!isOnlineSoundFontInstrument(instrumentId)) return null
+  const payload = instrumentId.slice(ONLINE_SOUNDFONT_PREFIX.length)
+  const separatorIndex = payload.indexOf(':')
+  if (separatorIndex < 0) return null
+
+  return {
+    baseUrl: decodeURIComponent(payload.slice(0, separatorIndex)),
+    soundFontName: decodeURIComponent(payload.slice(separatorIndex + 1)),
+  }
+}
+
+export function getOnlineSoundFontBaseUrl(instrumentId: InstrumentId) {
+  return parseOnlineSoundFontInstrumentId(instrumentId)?.baseUrl ?? null
+}
+
+function formatSoundFontLabel(soundFontName: string) {
+  return soundFontName
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 export function getInstrumentIcon(instrumentId: InstrumentId) {
@@ -327,6 +365,8 @@ export function getInstrumentLabel(instrumentId: InstrumentId) {
   if (instrumentId === 'audio-track') return '오디오 파일'
   if (instrumentId === 'drums') return '파워 드럼 키트'
   if (instrumentId === 'standard-drums') return '스탠다드 드럼 키트'
+  const onlineSoundFont = parseOnlineSoundFontInstrumentId(instrumentId)
+  if (onlineSoundFont) return formatSoundFontLabel(onlineSoundFont.soundFontName)
   const program = getProgramFromInstrumentId(instrumentId)
   return program === null ? '기본 신스' : GM_KO_NAMES[program]
 }
@@ -334,6 +374,8 @@ export function getInstrumentLabel(instrumentId: InstrumentId) {
 export function getSoundFontInstrumentName(instrumentId: InstrumentId) {
   if (instrumentId === 'audio-track') return null
   if (instrumentId === 'drums' || instrumentId === 'standard-drums') return null
+  const onlineSoundFont = parseOnlineSoundFontInstrumentId(instrumentId)
+  if (onlineSoundFont) return onlineSoundFont.soundFontName
 
   const program = getProgramFromInstrumentId(instrumentId)
   if (program === null) return null

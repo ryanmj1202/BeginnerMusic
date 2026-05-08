@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ChangeEvent,
   Dispatch,
   DragEvent,
@@ -83,6 +83,15 @@ export function useFileActions({
   snapBeatToGrid,
   totalBeats,
 }: UseFileActionsOptions) {
+  void audioFileInputRef
+  void isRecordingVoice
+  void mediaRecorderRef
+  void recordingChunksRef
+  void recordingStartBeatRef
+  void recordingStartMsRef
+  void selectedTrack
+  void setIsRecordingVoice
+
   function createNewProject() {
     resetPlayback()
     setSelectedNoteIds([])
@@ -95,7 +104,7 @@ export function useFileActions({
   function blobToDataUrl(blob: Blob) {
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
-      reader.onerror = () => reject(new Error('파일을 읽지 못했습니다.'))
+      reader.onerror = () => reject(new Error('?뚯씪???쎌? 紐삵뻽?듬땲??'))
       reader.onload = () => resolve(String(reader.result))
       reader.readAsDataURL(blob)
     })
@@ -162,7 +171,7 @@ export function useFileActions({
 
   async function addAudioFileAsTrack(file: File) {
     const trackId = createId('track')
-    const name = file.name.replace(/\.[^.]+$/, '') || '오디오 파일'
+    const name = file.name.replace(/\.[^.]+$/, '') || '?ㅻ뵒???뚯씪'
     const dataUrl = await blobToDataUrl(file)
     const resolvedDurationSeconds = await getAudioDurationFromDataUrl(dataUrl)
     const waveform = await getAudioWaveform(file)
@@ -177,6 +186,7 @@ export function useFileActions({
       volume: 0.95,
       pan: 0,
       mute: false,
+      solo: false,
       channel: Math.min(16, projectRef.current.tracks.length + 1),
       color: TRACK_COLORS[projectRef.current.tracks.length % TRACK_COLORS.length],
     }
@@ -201,56 +211,20 @@ export function useFileActions({
       audioClips: [...(current.audioClips ?? []), clip],
     }))
     setSelectedNoteIds([])
-    setActiveEditorTab('arrange')
+    setActiveEditorTab('piano-roll')
   }
 
   function openAudioUpload() {
-    audioFileInputRef.current?.click()
+    return
   }
 
   async function importAudioFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? [])
     event.target.value = ''
-    if (files.length === 0) return
-
-    for (const file of files) {
-      if (!file.type.startsWith('audio/')) continue
-      await addAudioFileAsTrack(file)
-    }
+    return
   }
 
   async function toggleVoiceRecording() {
-    if (isRecordingVoice) {
-      mediaRecorderRef.current?.stop()
-      return
-    }
-
-    if (!selectedTrack) return
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
-      recordingChunksRef.current = []
-      recordingStartBeatRef.current = getCurrentPlaybackBeat()
-      recordingStartMsRef.current = performance.now()
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) recordingChunksRef.current.push(event.data)
-      }
-      recorder.onstop = () => {
-        const durationSeconds = Math.max(0.25, (performance.now() - recordingStartMsRef.current) / 1000)
-        const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        const trackId = selectedTrack.id
-        stream.getTracks().forEach((track) => track.stop())
-        setIsRecordingVoice(false)
-        void addAudioClipToTrack(trackId, blob, `녹음 ${new Date().toLocaleTimeString('ko-KR')}`, durationSeconds, recordingStartBeatRef.current)
-      }
-      mediaRecorderRef.current = recorder
-      setIsRecordingVoice(true)
-      recorder.start()
-    } catch {
-      setIsRecordingVoice(false)
-      alert('마이크 권한을 받을 수 없어서 녹음을 시작하지 못했습니다.')
-    }
+    return
   }
 
   function saveProjectFile() {
@@ -266,7 +240,7 @@ export function useFileActions({
 
   function saveMidiFile() {
     if ((project.audioClips ?? []).length > 0) {
-      alert('녹음이나 오디오 파일이 들어간 프로젝트는 MIDI로 저장할 수 없습니다. MP3 저장을 사용해 주세요.')
+      alert('?뱀쓬?대굹 ?ㅻ뵒???뚯씪???ㅼ뼱媛??꾨줈?앺듃??MIDI濡???ν븷 ???놁뒿?덈떎. MP3 ??μ쓣 ?ъ슜??二쇱꽭??')
       setFileMenuOpen(false)
       return
     }
@@ -296,7 +270,7 @@ export function useFileActions({
       link.click()
       URL.revokeObjectURL(url)
     } catch {
-      alert('음악 파일을 만들지 못했습니다. 음표가 너무 많거나 브라우저 오디오 만들기가 실패했을 수 있습니다.')
+      alert('?뚯븙 ?뚯씪??留뚮뱾吏 紐삵뻽?듬땲?? ?뚰몴媛 ?덈Т 留롪굅??釉뚮씪?곗? ?ㅻ뵒??留뚮뱾湲곌? ?ㅽ뙣?덉쓣 ???덉뒿?덈떎.')
     } finally {
       setIsExportingMp3(false)
     }
@@ -323,7 +297,7 @@ export function useFileActions({
           setProject(nextProject)
         }
       } catch {
-        alert('파일을 불러오지 못했습니다. 비기너뮤직 프로젝트 파일 또는 미디 파일인지 확인해 주세요.')
+        alert('?뚯씪??遺덈윭?ㅼ? 紐삵뻽?듬땲?? 鍮꾧린?덈?吏??꾨줈?앺듃 ?뚯씪 ?먮뒗 誘몃뵒 ?뚯씪?몄? ?뺤씤??二쇱꽭??')
       }
     }
 
@@ -357,8 +331,6 @@ export function useFileActions({
       loadProjectFromFile(projectFile)
       return
     }
-
-    void Promise.all(files.filter((file) => file.type.startsWith('audio/')).map((file) => addAudioFileAsTrack(file)))
   }
 
   return {
@@ -378,3 +350,5 @@ export function useFileActions({
     toggleVoiceRecording,
   }
 }
+
+

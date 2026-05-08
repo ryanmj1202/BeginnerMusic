@@ -1,20 +1,14 @@
 import type {
   Dispatch,
-  MutableRefObject,
   PointerEvent as ReactPointerEvent,
-  RefObject,
   SetStateAction,
 } from 'react'
+import { useEffect, useState } from 'react'
 import type { Note } from '../../../types/music'
-import {
-  TEMPO_PRESETS,
-  TERMINOLOGY_HELP,
-} from '../constants'
+import { TEMPO_PRESETS, TERMINOLOGY_HELP } from '../constants'
 import { getPitchName } from '../helpers'
-import type {
-  DetailGraphDrag,
-  EditableNoteControlKey,
-} from '../types'
+import { clampNoteControlValue, quantizeValue } from '../utils/noteControlUtils'
+import type { EditableNoteControlKey } from '../types'
 
 type ActiveNoteControl = {
   format: (value: number) => string
@@ -25,29 +19,13 @@ type ActiveNoteControl = {
   step: number
 } | null
 
-type DetailGraphBounds = {
-  maxBeat: number
-  minBeat: number
-} | null
-
 type DetailPanelProps = {
   activeDetailTerm: string
   activeNoteControl: ActiveNoteControl
-  beginDetailGraphDrag: (
-    event: ReactPointerEvent<SVGElement>,
-    control: { key: EditableNoteControlKey; min: number; max: number; step: number },
-    notes: Note[],
-  ) => void
   changeTempoInput: (value: string) => void
   commitTempoInput: () => void
-  detailGraphBounds: DetailGraphBounds
-  detailGraphDragRef: MutableRefObject<DetailGraphDrag | null>
-  detailGraphNotes: Note[]
-  detailGraphSvgRef: RefObject<SVGSVGElement | null>
   detailPanelOpen: boolean
   editableSelectedNotes: Note[]
-  finishDetailGraphDrag: (pointerId?: number) => void
-  getNoteControlValue: (note: Note, key: EditableNoteControlKey) => number
   getSelectedNoteValue: (key: EditableNoteControlKey) => number
   isPlaying: boolean
   projectTempo: number
@@ -55,11 +33,14 @@ type DetailPanelProps = {
   selectedNote: Note | null
   setActiveDetailTerm: Dispatch<SetStateAction<string>>
   setDetailPanelOpen: Dispatch<SetStateAction<boolean>>
-  snapBeatToGrid: (beat: number) => number
   sortedEditableSelectedNotes: Note[]
   tempoInput: string
   togglePlayback: () => void
-  updateDetailGraphFromPointer: (clientX: number, clientY: number) => void
+  updateSingleNoteControlValue: (
+    noteId: string,
+    key: EditableNoteControlKey,
+    value: number,
+  ) => void
   updateNoteEvent: (
     noteId: string,
     updates: Partial<Pick<Note, 'pitch' | 'startBeat' | 'durationBeats' | 'velocity'>>,
@@ -67,20 +48,98 @@ type DetailPanelProps = {
   updateTempo: (tempo: number) => void
 }
 
+function getControlRange(key: EditableNoteControlKey) {
+  if (key === 'pitchBend') return { min: -2, max: 2, step: 0.01 }
+  if (key === 'pan') return { min: -1, max: 1, step: 0.01 }
+  if (key === 'velocity') return { min: 0.05, max: 1, step: 0.01 }
+  return { min: 0, max: 1, step: 0.01 }
+}
+
+function formatControlValue(control: ActiveNoteControl, value: number) {
+  if (!control) return ''
+  return control.format(value)
+}
+
+function getNormalizedValue(key: EditableNoteControlKey, value: number) {
+  if (key === 'pan') return (value + 1) / 2
+  if (key === 'pitchBend') return (value + 2) / 4
+  return value
+}
+
+function renderControlArt(key: EditableNoteControlKey, value: number) {
+  const normalized = Math.max(0, Math.min(1, getNormalizedValue(key, value)))
+  const knobX = 18 + normalized * 164
+  const leftPower = key === 'pan' ? 1 - normalized : normalized
+  const rightPower = key === 'pan' ? normalized : normalized
+
+  if (key === 'pan') {
+    return (
+      <svg className="note-control-art-svg" viewBox="0 0 200 86" aria-hidden="true">
+        <text className="note-control-wave" x="18" y="48" opacity={0.25 + leftPower * 0.75}>{'((('}</text>
+        <path className="note-control-headband" d="M72 43a28 28 0 0 1 56 0" />
+        <path className="note-control-headphone-leg" d="M72 43v18M128 43v18" />
+        <rect className="note-control-earcup" x="58" y="54" width="22" height="20" rx="7" />
+        <rect className="note-control-earcup" x="120" y="54" width="22" height="20" rx="7" />
+        <text className="note-control-wave-right" x="151" y="48" opacity={0.25 + rightPower * 0.75}>{')))'}</text>
+        <line className="note-control-bend-track" x1="18" y1="80" x2="182" y2="80" />
+        <circle className="note-control-knob" cx={knobX} cy="80" r="6" />
+      </svg>
+    )
+  }
+
+  if (key === 'pitchBend') {
+    return (
+      <svg className="note-control-art-svg" viewBox="0 0 200 86" aria-hidden="true">
+        <path className="note-control-bend-track" d="M30 58c40-46 98 46 140-20" />
+        <text className="note-control-wave" x="85" y="35">↕</text>
+        <line className="note-control-bend-track" x1="18" y1="80" x2="182" y2="80" />
+        <circle className="note-control-knob" cx={knobX} cy="80" r="6" />
+      </svg>
+    )
+  }
+
+  if (key === 'modulation') {
+    return (
+      <svg className="note-control-art-svg" viewBox="0 0 200 86" aria-hidden="true">
+        <path className="note-control-wave-path" d="M26 46c10-24 20 24 30 0s20-24 30 0 20 24 30 0 20-24 30 0 20 24 30 0" />
+        <text className="note-control-wave" x="84" y="30" opacity={0.35 + normalized * 0.65}>~</text>
+        <line className="note-control-bend-track" x1="18" y1="80" x2="182" y2="80" />
+        <circle className="note-control-knob" cx={knobX} cy="80" r="6" />
+      </svg>
+    )
+  }
+
+  if (key === 'reverb') {
+    return (
+      <svg className="note-control-art-svg" viewBox="0 0 200 86" aria-hidden="true">
+        <path className="note-control-speaker" d="M42 53h20l24-18v38L62 55H42z" />
+        <path className="note-control-wave-path" d="M104 35c24 10 24 32 0 42" opacity={0.25 + normalized * 0.35} />
+        <path className="note-control-wave-path" d="M122 25c38 18 38 48 0 66" opacity={0.2 + normalized * 0.45} />
+        <path className="note-control-wave-path" d="M142 16c52 26 52 66 0 86" opacity={0.15 + normalized * 0.55} />
+        <circle className="note-control-knob" cx={92 + normalized * 62} cy={34 + normalized * 18} r={4 + normalized * 4} opacity={0.45 + normalized * 0.55} />
+        <line className="note-control-bend-track" x1="18" y1="80" x2="182" y2="80" />
+        <circle className="note-control-knob" cx={knobX} cy="80" r="6" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className="note-control-art-svg" viewBox="0 0 200 86" aria-hidden="true">
+      <path className="note-control-speaker" d="M50 52h24l28-22v46L74 54H50z" />
+      <text className="note-control-wave-right" x="118" y="54" opacity={0.25 + normalized * 0.75}>{')))'}</text>
+      <line className="note-control-bend-track" x1="18" y1="80" x2="182" y2="80" />
+      <circle className="note-control-knob" cx={knobX} cy="80" r="6" />
+    </svg>
+  )
+}
+
 export function DetailPanel({
   activeDetailTerm,
   activeNoteControl,
-  beginDetailGraphDrag,
   changeTempoInput,
   commitTempoInput,
-  detailGraphBounds,
-  detailGraphDragRef,
-  detailGraphNotes,
-  detailGraphSvgRef,
   detailPanelOpen,
   editableSelectedNotes,
-  finishDetailGraphDrag,
-  getNoteControlValue,
   getSelectedNoteValue,
   isPlaying,
   projectTempo,
@@ -88,18 +147,62 @@ export function DetailPanel({
   selectedNote,
   setActiveDetailTerm,
   setDetailPanelOpen,
-  snapBeatToGrid,
   sortedEditableSelectedNotes,
   tempoInput,
   togglePlayback,
-  updateDetailGraphFromPointer,
   updateNoteEvent,
+  updateSingleNoteControlValue,
   updateTempo,
 }: DetailPanelProps) {
+  const selectedValue = activeNoteControl ? getSelectedNoteValue(activeNoteControl.key) : 0
+  const [draftControlValue, setDraftControlValue] = useState<number | null>(null)
+  const displayValue = draftControlValue ?? selectedValue
+  const range = activeNoteControl ? getControlRange(activeNoteControl.key) : null
+  const editableNotes = editableSelectedNotes.length > 0
+    ? editableSelectedNotes
+    : selectedNote
+      ? [selectedNote]
+      : []
+
+  useEffect(() => {
+    setDraftControlValue(null)
+  }, [activeNoteControl?.key, selectedNote?.id, selectedValue])
+
+  function updateControlValue(rawValue: number) {
+    if (!activeNoteControl) return
+    const nextValue = quantizeValue(
+      clampNoteControlValue(activeNoteControl.key, rawValue),
+      activeNoteControl.step,
+    )
+    setDraftControlValue(nextValue)
+    editableNotes.forEach((note) => {
+      updateSingleNoteControlValue(note.id, activeNoteControl.key, nextValue)
+    })
+  }
+
+  function updateControlValueFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!activeNoteControl || !range || editableNotes.length === 0) return
+    const target = event.currentTarget
+    const applyPointerValue = (clientX: number) => {
+      const rect = target.getBoundingClientRect()
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+      updateControlValue(range.min + ratio * (range.max - range.min))
+    }
+    applyPointerValue(event.clientX)
+    target.setPointerCapture?.(event.pointerId)
+    const handlePointerMove = (moveEvent: PointerEvent) => applyPointerValue(moveEvent.clientX)
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+  }
+
   return (
-    <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="세부 편집">
+    <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="상세 편집">
       <div className="detail-header">
-        <div className="detail-tabs" aria-label="편집 탭">
+        <div className="detail-tabs" aria-label="detail tabs">
           {TERMINOLOGY_HELP.map((item) => (
             <button
               className={activeDetailTerm === item.term ? 'is-active' : ''}
@@ -113,128 +216,82 @@ export function DetailPanel({
           ))}
         </div>
         <button
-          type="button"
           className="detail-toggle-button"
           onPointerDown={() => setDetailPanelOpen((current) => !current)}
-          title={detailPanelOpen ? '세부 메뉴 접기' : '세부 메뉴 펼치기'}
+          title={detailPanelOpen ? '상세 편집 접기' : '상세 편집 펼치기'}
+          type="button"
         >
-          {detailPanelOpen ? '세부 메뉴 접기' : '세부 메뉴 펼치기'}
+          {detailPanelOpen ? '접기' : '펼치기'}
         </button>
       </div>
 
       {detailPanelOpen ? (
         <div className="velocity-lane">
-          <div className="tempo-panel" aria-label="템포 설정">
+          <div className="tempo-panel" aria-label="tempo panel">
             <label>
-              <span>빠르기</span>
-              <button type="button" onPointerDown={() => updateTempo(projectTempo - 5)}>−</button>
+              <span>Tempo</span>
+              <button type="button" onPointerDown={() => updateTempo(projectTempo - 5)}>-</button>
               <input
-                aria-label="빠르기"
+                aria-label="Tempo"
                 inputMode="numeric"
-                type="text"
-                value={tempoInput}
                 onBlur={commitTempoInput}
                 onChange={(event) => changeTempoInput(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.currentTarget.blur()
-                  }
+                  if (event.key === 'Enter') event.currentTarget.blur()
                 }}
+                type="text"
+                value={tempoInput}
               />
               <select
-                aria-label="템포 선택"
-                value={TEMPO_PRESETS.includes(projectTempo) ? projectTempo : 'custom'}
+                aria-label="Tempo preset"
                 onChange={(event) => updateTempo(Number(event.target.value))}
+                value={projectTempo}
               >
-                <option disabled value="custom">직접</option>
-                {TEMPO_PRESETS.map((tempo) => (
-                  <option key={tempo} value={tempo}>
-                    {tempo}
+                {TEMPO_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {preset}
                   </option>
                 ))}
               </select>
-              <button type="button" onPointerDown={() => updateTempo(projectTempo + 5)}>＋</button>
+              <button type="button" onPointerDown={() => updateTempo(projectTempo + 5)}>+</button>
             </label>
           </div>
 
-          <div className="note-control-panel">
-            <strong>
-              {editableSelectedNotes.length > 0
-                ? `${editableSelectedNotes.length}개 음표 편집`
-                : '음표를 선택하세요'}
-            </strong>
-            {activeNoteControl ? (
-              <div className="note-control-graph">
-                <div className="note-control-graph-head">
-                  <span>{activeNoteControl.label}</span>
-                  <em>{activeNoteControl.format(getSelectedNoteValue(activeNoteControl.key))}</em>
-                </div>
-                {detailGraphNotes.length > 0 && detailGraphBounds ? (
-                  <svg
-                    className="note-control-graph-svg"
-                    ref={detailGraphSvgRef}
-                    viewBox="0 0 100 100"
-                    aria-label={`${activeNoteControl.label} 그래프 편집`}
-                    onPointerDown={(event) => beginDetailGraphDrag(event, activeNoteControl, detailGraphNotes)}
-                    onPointerMove={(event) => {
-                      const drag = detailGraphDragRef.current
-                      if (!drag?.active || drag.pointerId !== event.pointerId) return
-                      updateDetailGraphFromPointer(event.clientX, event.clientY)
-                    }}
-                    onPointerUp={(event) => {
-                      finishDetailGraphDrag(event.pointerId)
-                    }}
-                    onPointerCancel={(event) => {
-                      finishDetailGraphDrag(event.pointerId)
-                    }}
-                    onLostPointerCapture={(event) => {
-                      finishDetailGraphDrag(event.pointerId)
-                    }}
-                  >
-                    <line x1="0" y1="100" x2="100" y2="100" />
-                    <line x1="0" y1="0" x2="0" y2="100" />
-                    <polyline
-                      points={detailGraphNotes.map((note) => {
-                        const beatSpan = Math.max(0.25, detailGraphBounds.maxBeat - detailGraphBounds.minBeat)
-                        const x = ((note.startBeat - detailGraphBounds.minBeat) / beatSpan) * 100
-                        const normalizedValue = (getNoteControlValue(note, activeNoteControl.key) - activeNoteControl.min) / (activeNoteControl.max - activeNoteControl.min || 1)
-                        const y = 100 - Math.max(0, Math.min(1, normalizedValue)) * 100
-                        return `${x.toFixed(2)},${y.toFixed(2)}`
-                      }).join(' ')}
+          <div className="control-bundle">
+            {activeNoteControl && range ? (
+              <div className="note-control-panel">
+                <strong>{activeNoteControl.label}</strong>
+                <div className="note-control-card">
+                  <div className="note-control-stage" onPointerDown={updateControlValueFromPointer}>
+                    {renderControlArt(activeNoteControl.key, displayValue)}
+                    <input
+                      aria-label={activeNoteControl.label}
+                      max={range.max}
+                      min={range.min}
+                      onChange={(event) => updateControlValue(Number(event.target.value))}
+                      onInput={(event) => updateControlValue(Number(event.currentTarget.value))}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      step={range.step}
+                      type="range"
+                      value={displayValue}
                     />
-                    {detailGraphNotes.map((note) => {
-                      const beatSpan = Math.max(0.25, detailGraphBounds.maxBeat - detailGraphBounds.minBeat)
-                      const x = ((note.startBeat - detailGraphBounds.minBeat) / beatSpan) * 100
-                      const normalizedValue = (getNoteControlValue(note, activeNoteControl.key) - activeNoteControl.min) / (activeNoteControl.max - activeNoteControl.min || 1)
-                      const y = 100 - Math.max(0, Math.min(1, normalizedValue)) * 100
-                      return (
-                        <circle
-                          key={note.id}
-                          cx={x}
-                          cy={y}
-                          r="2.2"
-                          onPointerDown={(event) => beginDetailGraphDrag(event, activeNoteControl, detailGraphNotes)}
-                        />
-                      )
-                    })}
-                  </svg>
-                ) : (
-                  <span className="note-control-hint">편집할 음표를 선택하세요.</span>
-                )}
+                  </div>
+                  <span className="note-control-caption">
+                    {formatControlValue(activeNoteControl, displayValue)}
+                  </span>
+                </div>
               </div>
-            ) : (
-              <span className="note-control-hint">아래 음표 정보 탭에서 개별 수치를 직접 수정할 수 있습니다.</span>
-            )}
+            ) : null}
           </div>
 
           {activeDetailTerm === '음표 정보' ? (
             <div className="event-editor">
               <strong>음표 정보</strong>
               {sortedEditableSelectedNotes.length === 0 ? (
-                <span>편집할 음표를 선택하세요.</span>
+                <span>선택한 음표 없음</span>
               ) : (
                 <div className="event-grid">
-                  <span>음</span>
+                  <span>음높이</span>
                   <span>시작</span>
                   <span>길이</span>
                   <span>세기</span>
@@ -242,32 +299,32 @@ export function DetailPanel({
                     <div className="event-row" key={note.id}>
                       <input
                         aria-label="음높이"
+                        onChange={(event) => updateNoteEvent(note.id, { pitch: Number(event.target.value) })}
                         type="number"
                         value={note.pitch}
-                        onChange={(event) => updateNoteEvent(note.id, { pitch: Number(event.target.value) })}
                       />
                       <input
                         aria-label="시작 박자"
+                        onChange={(event) => updateNoteEvent(note.id, { startBeat: Number(event.target.value) })}
                         step="0.125"
                         type="number"
-                        value={Number(note.startBeat.toFixed(3))}
-                        onChange={(event) => updateNoteEvent(note.id, { startBeat: snapBeatToGrid(Number(event.target.value)) })}
+                        value={note.startBeat}
                       />
                       <input
                         aria-label="길이"
+                        onChange={(event) => updateNoteEvent(note.id, { durationBeats: Number(event.target.value) })}
                         step="0.125"
                         type="number"
-                        value={Number(note.durationBeats.toFixed(3))}
-                        onChange={(event) => updateNoteEvent(note.id, { durationBeats: snapBeatToGrid(Number(event.target.value)) })}
+                        value={note.durationBeats}
                       />
                       <input
-                        aria-label="소리 세기"
+                        aria-label="세기"
                         max="1"
                         min="0.05"
+                        onChange={(event) => updateNoteEvent(note.id, { velocity: Number(event.target.value) })}
                         step="0.01"
                         type="number"
-                        value={Number(note.velocity.toFixed(2))}
-                        onChange={(event) => updateNoteEvent(note.id, { velocity: Number(event.target.value) })}
+                        value={note.velocity}
                       />
                     </div>
                   ))}
@@ -278,18 +335,24 @@ export function DetailPanel({
         </div>
       ) : null}
 
-      <div className="transport-bar">
-        <div className="transport-buttons">
-          <button type="button" onPointerDown={resetPlayback}>■</button>
-          <button type="button" onPointerDown={togglePlayback}>{isPlaying ? '⏸' : '▶'}</button>
-          <span>스페이스바 일시정지 / 이어재생</span>
-        </div>
-
-        <div className="selected-note-summary">
-          {selectedNote ? `${getPitchName(selectedNote.pitch)} · 세기 ${Math.round(selectedNote.velocity * 100)}` : '음표 선택 없음'}
-        </div>
-
-        <span />
+      <div className="detail-footer">
+        <button
+          aria-label="멈추고 처음으로 이동"
+          className="detail-stop-button"
+          onPointerDown={resetPlayback}
+          type="button"
+        >
+          ■
+        </button>
+        <button
+          aria-label={isPlaying ? '일시정지' : '재생'}
+          className="detail-play-button"
+          onPointerDown={togglePlayback}
+          type="button"
+        >
+          {isPlaying ? '⏸' : '▶'}
+        </button>
+        <span>{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 없음'}</span>
       </div>
     </section>
   )

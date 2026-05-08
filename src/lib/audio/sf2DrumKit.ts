@@ -474,6 +474,7 @@ function playSample(
   velocity: number,
   rrIndexByKey: Map<number, number>,
   time?: number,
+  outputNode?: AudioNode,
 ) {
   const zones = kit.zonesByKey.get(midi)
   if (!zones || zones.length === 0) return null
@@ -499,7 +500,7 @@ function playSample(
   source.playbackRate.value = 1
   gain.gain.setValueAtTime(Math.min(1.4, velocity * DRUM_SOUNDFONT_GAIN * attenuationGain), startAt)
   source.connect(gain)
-  gain.connect(context.destination)
+  gain.connect(outputNode ?? context.destination)
   source.start(startAt)
 
   const active = { gain, minimumReleaseAt: startAt + getMinimumDrumHitSeconds(midi), source }
@@ -544,6 +545,7 @@ export function createSf2DrumKitInstrument(
   const ready = loadDrumKit(style)
     .then(() => undefined)
     .catch(() => undefined)
+  let outputNode: AudioNode | null = null
   let disposed = false
 
   function addActive(note: number, sample: ActiveSample) {
@@ -564,7 +566,7 @@ export function createSf2DrumKitInstrument(
 
     const midi = Math.round(note)
     const adjustedVelocity = mode === 'preview' ? Math.min(0.78, velocity) : velocity
-    const sample = playSample(kit, midi, adjustedVelocity, rrIndexByKey, time)
+    const sample = playSample(kit, midi, adjustedVelocity, rrIndexByKey, time, outputNode ?? undefined)
     if (!sample) return false
 
     addActive(midi, sample)
@@ -572,6 +574,16 @@ export function createSf2DrumKitInstrument(
   }
 
   return {
+    connect(node) {
+      outputNode = ((node as any).input ?? node) as AudioNode
+      fallback.connect?.(node)
+      return node
+    },
+    disconnect() {
+      outputNode = null
+      fallback.disconnect?.()
+      return undefined
+    },
     expectsMidi: true,
     readyTimeoutMs: DRUM_READY_TIMEOUT_MS,
     ready,

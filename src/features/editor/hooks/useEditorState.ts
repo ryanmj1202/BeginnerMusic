@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { TERMINOLOGY_HELP } from '../constants'
 import type {
-  AutoMixGenrePreset,
-  AutoMixReportItem,
   EditorTab,
   LassoPoint,
   NoteDivision,
@@ -16,14 +14,9 @@ export function useEditorState(project: Project) {
   const [tempoInput, setTempoInput] = useState(() => String(project.tempo))
   const [resizingNoteId, setResizingNoteId] = useState<string | null>(null)
   const [isExportingMp3, setIsExportingMp3] = useState(false)
-  const [isAutoMixing, setIsAutoMixing] = useState(false)
-  const [autoMixReport, setAutoMixReport] = useState<AutoMixReportItem[]>([])
   const [isRecordingVoice, setIsRecordingVoice] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackBeat, setPlaybackBeat] = useState(0)
-  const [autoMixPanelOpen, setAutoMixPanelOpen] = useState(false)
-  const [autoMixGenrePreset, setAutoMixGenrePreset] = useState<AutoMixGenrePreset>('default')
-  const [selectedAutoMixSectionId, setSelectedAutoMixSectionId] = useState<string | null>(null)
   const [selectedTempoSectionId, setSelectedTempoSectionId] = useState<string | null>(null)
   const [selectedTrackPlacementId, setSelectedTrackPlacementId] = useState<string | null>(null)
   const [activeEditorTab, setActiveEditorTab] = useState<EditorTab>('piano-roll')
@@ -47,12 +40,8 @@ export function useEditorState(project: Project) {
     activeDetailTerm,
     activeEditorTab,
     allTrackMelodyMode,
-    autoMixGenrePreset,
-    autoMixPanelOpen,
-    autoMixReport,
     detailPanelOpen,
     draggingNoteId,
-    isAutoMixing,
     isDraggingFile,
     isExportingMp3,
     isPlaying,
@@ -65,7 +54,6 @@ export function useEditorState(project: Project) {
     pressedPitch,
     resizingNoteId,
     rollZoom,
-    selectedAutoMixSectionId,
     selectedNoteIds,
     selectedTempoSectionId,
     selectedTrackPlacementId,
@@ -73,13 +61,9 @@ export function useEditorState(project: Project) {
     setActiveDetailTerm,
     setActiveEditorTab,
     setAllTrackMelodyMode,
-    setAutoMixGenrePreset,
-    setAutoMixPanelOpen,
-    setAutoMixReport,
     setDetailPanelOpen,
     setDraggingNoteId,
     setHistoryVersion,
-    setIsAutoMixing,
     setIsDraggingFile,
     setIsExportingMp3,
     setIsPlaying,
@@ -92,7 +76,6 @@ export function useEditorState(project: Project) {
     setPressedPitch,
     setResizingNoteId,
     setRollZoom,
-    setSelectedAutoMixSectionId,
     setSelectedNoteIds,
     setSelectedTempoSectionId,
     setSelectedTrackPlacementId,

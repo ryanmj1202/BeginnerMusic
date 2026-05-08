@@ -173,9 +173,9 @@ function noteToEvents(note: Note, channel: number): MidiTrackEvent[] {
   const events: MidiTrackEvent[] = []
 
   if (note.volume !== undefined) events.push(createControlChange(startTick, channel, 7, note.volume, 12))
+  if (note.modulation !== undefined) events.push(createControlChange(startTick, channel, 1, note.modulation, 13))
   if (note.pan !== undefined) events.push(createControlChange(startTick, channel, 10, (note.pan + 1) / 2, 13))
   if (note.expression !== undefined) events.push(createControlChange(startTick, channel, 11, note.expression, 14))
-  if (note.modulation !== undefined) events.push(createControlChange(startTick, channel, 1, note.modulation, 15))
   if (note.pitchBend !== undefined) events.push(createPitchBend(startTick, channel, note.pitchBend, 18))
 
   events.push({ tick: startTick, order: 20, data: [0x90 | channel, pitch, velocity] })

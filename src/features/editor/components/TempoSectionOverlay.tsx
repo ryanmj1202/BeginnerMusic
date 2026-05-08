@@ -17,7 +17,7 @@ export function TempoSectionOverlay({
   if (tempoSections.length === 0) return null
 
   return (
-    <div className="tempo-section-overlay" aria-label="빠르기 구간 표시">
+    <div className="tempo-section-overlay" aria-label="템포 구간 표시">
       {tempoSections.map((section, index) => {
         const left = Math.min(100, Math.max(0, (section.startBeat / totalBeats) * 100))
         const right = Math.min(100, Math.max(0, (section.endBeat / totalBeats) * 100))
@@ -39,7 +39,7 @@ export function TempoSectionOverlay({
             title={`${section.name} · ${section.tempo} BPM`}
             onPointerDown={handlePointerDown}
           >
-            <strong>{section.name || `빠르기 ${index + 1}`}</strong>
+            <strong>{section.name || `템포 ${index + 1}`}</strong>
             <span>{section.tempo} BPM</span>
           </button>
         )

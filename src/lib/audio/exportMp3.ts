@@ -1,5 +1,11 @@
 import lameSource from 'lamejs/lame.min.js?raw'
-import { getProgramFromInstrumentId } from '../midi/generalMidi'
+import {
+  FLUID_SOUNDFONT_BASE_URL,
+  ORCHESTRAL_SOUNDFONT_BASE_URL,
+  getOnlineSoundFontBaseUrl,
+  getProgramFromInstrumentId,
+  getSoundFontInstrumentName,
+} from '../midi/generalMidi'
 import { expandProjectForArrangement } from '../arrangement/trackArrangement'
 import type { Note, Project, Track } from '../../types/music'
 
@@ -9,6 +15,8 @@ const ENCODE_CHUNK_SIZE = 1152
 const EXPORT_HEADROOM = 0.98
 const TEMPO_INPUT_MIN = 1
 const TEMPO_INPUT_MAX = 999
+const SOUNDFONT_ROOT_NOTES = [36, 48, 60, 72, 84]
+const SOUNDFONT_NOTE_NAMES = ['C2', 'C3', 'C4', 'C5', 'C6']
 
 type Mp3Encoder = {
   encodeBuffer: (left: Int16Array, right?: Int16Array) => Int8Array
@@ -20,6 +28,7 @@ type LameBundle = {
 }
 
 let lameBundle: LameBundle | null = null
+const soundFontSampleCache = new Map<string, Promise<ArrayBuffer>>()
 
 function getLameBundle() {
   if (!lameBundle) {
@@ -116,7 +125,138 @@ function getMidiFrequency(pitch: number) {
   return 440 * 2 ** ((pitch - 69) / 12)
 }
 
-function scheduleNote(
+function getNoteGain(note: Note, track: Track) {
+  return note.velocity * (note.volume ?? 1) * (note.expression ?? 1) * track.volume
+}
+
+function connectWithNoteReverb(
+  context: OfflineAudioContext,
+  source: AudioNode,
+  destination: AudioNode,
+  reverb: number | undefined,
+) {
+  const amount = Math.max(0, Math.min(1, reverb ?? 0))
+  if (amount <= 0.01) {
+    source.connect(destination)
+    return
+  }
+
+  const delay = context.createDelay(0.8)
+  const feedback = context.createGain()
+  const wet = context.createGain()
+  delay.delayTime.setValueAtTime(0.06 + amount * 0.16, 0)
+  feedback.gain.setValueAtTime(Math.min(0.62, 0.16 + amount * 0.46), 0)
+  wet.gain.setValueAtTime(Math.min(0.58, 0.18 + amount * 0.4), 0)
+  source.connect(destination)
+  source.connect(delay)
+  delay.connect(feedback)
+  feedback.connect(delay)
+  delay.connect(wet)
+  wet.connect(destination)
+}
+
+function getSoundFontBaseUrl(track: Track) {
+  const onlineBaseUrl = getOnlineSoundFontBaseUrl(track.instrumentId)
+  if (onlineBaseUrl) return onlineBaseUrl
+
+  const program = getProgramFromInstrumentId(track.instrumentId)
+  if (program === null) return FLUID_SOUNDFONT_BASE_URL
+  if (program >= 40 && program < 80) return ORCHESTRAL_SOUNDFONT_BASE_URL
+  return FLUID_SOUNDFONT_BASE_URL
+}
+
+function getNearestSoundFontRoot(pitch: number) {
+  let nearestIndex = 0
+  let nearestDistance = Number.POSITIVE_INFINITY
+
+  SOUNDFONT_ROOT_NOTES.forEach((rootPitch, index) => {
+    const distance = Math.abs(pitch - rootPitch)
+    if (distance >= nearestDistance) return
+    nearestIndex = index
+    nearestDistance = distance
+  })
+
+  return {
+    name: SOUNDFONT_NOTE_NAMES[nearestIndex],
+    pitch: SOUNDFONT_ROOT_NOTES[nearestIndex],
+  }
+}
+
+function fetchSoundFontSample(url: string) {
+  const cached = soundFontSampleCache.get(url)
+  if (cached) return cached
+
+  const pending = fetch(url).then((response) => {
+    if (!response.ok) throw new Error(`SoundFont sample failed: ${response.status}`)
+    return response.arrayBuffer()
+  })
+  soundFontSampleCache.set(url, pending)
+  return pending
+}
+
+async function scheduleSoundFontNote(
+  context: OfflineAudioContext,
+  destination: AudioNode,
+  project: Project,
+  totalBeats: number,
+  track: Track,
+  note: Note,
+) {
+  const soundFontName = getSoundFontInstrumentName(track.instrumentId)
+  if (!soundFontName) return false
+
+  const root = getNearestSoundFontRoot(note.pitch)
+  const url = `${getSoundFontBaseUrl(track)}${soundFontName}-mp3/${root.name}.mp3`
+  const sampleData = await fetchSoundFontSample(url)
+  const buffer = await context.decodeAudioData(sampleData.slice(0))
+  const startSeconds = getSecondsBetweenBeats(project, 0, note.startBeat, totalBeats)
+  const durationSeconds = Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats))
+  const releaseSeconds = Math.min(0.18, durationSeconds * 0.35)
+  const endSeconds = startSeconds + durationSeconds
+  const source = context.createBufferSource()
+  const gain = context.createGain()
+  const panner = context.createStereoPanner()
+  const playbackRate = 2 ** ((note.pitch + (note.pitchBend ?? 0) - root.pitch) / 12)
+
+  source.buffer = buffer
+  source.playbackRate.setValueAtTime(playbackRate, startSeconds)
+  gain.gain.setValueAtTime(0.0001, startSeconds)
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, Math.min(1.1, getNoteGain(note, track) * 0.9)), startSeconds + 0.006)
+  gain.gain.setValueAtTime(Math.max(0.0001, Math.min(1.1, getNoteGain(note, track) * 0.9)), Math.max(startSeconds + 0.006, endSeconds - releaseSeconds))
+  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
+  panner.pan.setValueAtTime(Math.max(-1, Math.min(1, (track.pan ?? 0) + (note.pan ?? 0))), startSeconds)
+  source.connect(gain)
+  gain.connect(panner)
+  connectWithNoteReverb(context, panner, destination, note.reverb)
+  source.start(startSeconds)
+  source.stop(Math.min(endSeconds + 0.08, startSeconds + buffer.duration / playbackRate))
+  return true
+}
+
+async function scheduleNote(
+  context: OfflineAudioContext,
+  destination: AudioNode,
+  project: Project,
+  totalBeats: number,
+  track: Track,
+  note: Note,
+) {
+  if (isDrumTrack(track)) {
+    scheduleDrumNote(context, destination, project, totalBeats, track, note)
+    return
+  }
+
+  try {
+    if (await scheduleSoundFontNote(context, destination, project, totalBeats, track, note)) return
+  } catch {
+    scheduleSynthNote(context, destination, project, totalBeats, track, note)
+    return
+  }
+
+  scheduleSynthNote(context, destination, project, totalBeats, track, note)
+}
+
+function scheduleSynthNote(
   context: OfflineAudioContext,
   destination: AudioNode,
   project: Project,
@@ -125,37 +265,162 @@ function scheduleNote(
   note: Note,
 ) {
   const startSeconds = getSecondsBetweenBeats(project, 0, note.startBeat, totalBeats)
-  const durationSeconds = isDrumTrack(track)
-    ? getDrumDurationSeconds(note.pitch, Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats)))
-    : Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats))
+  const durationSeconds = Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats))
   const endSeconds = startSeconds + durationSeconds
   const oscillator = context.createOscillator()
   const gain = context.createGain()
   const panner = context.createStereoPanner()
-  const attackSeconds = isDrumTrack(track) ? 0.001 : Math.min(0.02, durationSeconds * 0.2)
-  const releaseSeconds = isDrumTrack(track) ? Math.min(0.18, durationSeconds * 0.7) : Math.min(0.12, durationSeconds * 0.45)
+  const attackSeconds = Math.min(0.02, durationSeconds * 0.2)
+  const releaseSeconds = Math.min(0.12, durationSeconds * 0.45)
   const peakGain = Math.min(
     0.34,
-    Math.max(0.02, note.velocity * (note.volume ?? 1) * (note.expression ?? 1) * track.volume * 0.24),
+    Math.max(0.02, getNoteGain(note, track) * 0.24),
   )
+  const baseFrequency = getMidiFrequency(note.pitch + (note.pitchBend ?? 0))
 
   oscillator.type = getWaveform(track)
-  oscillator.frequency.setValueAtTime(getMidiFrequency(note.pitch + (note.pitchBend ?? 0)), startSeconds)
+  oscillator.frequency.setValueAtTime(baseFrequency, startSeconds)
+  if ((note.modulation ?? 0) > 0.01) {
+    const depth = Math.min(0.18, Math.max(0, note.modulation ?? 0) * 0.18)
+    const rate = 6.8
+    const steps = Math.max(8, Math.ceil(durationSeconds * rate * 8))
+    for (let index = 0; index <= steps; index += 1) {
+      const progress = index / steps
+      const time = startSeconds + progress * durationSeconds
+      const semitones = Math.sin(progress * durationSeconds * rate * Math.PI * 2) * depth
+      oscillator.frequency.linearRampToValueAtTime(baseFrequency * 2 ** (semitones / 12), time)
+    }
+  }
   gain.gain.setValueAtTime(0.0001, startSeconds)
   gain.gain.exponentialRampToValueAtTime(peakGain, startSeconds + attackSeconds)
-  if (isDrumTrack(track)) {
-    gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
-  } else {
-    gain.gain.setValueAtTime(peakGain, Math.max(startSeconds + attackSeconds, endSeconds - releaseSeconds))
-    gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
-  }
-  panner.pan.setValueAtTime(Math.max(-1, Math.min(1, note.pan ?? 0)), startSeconds)
+  gain.gain.setValueAtTime(peakGain, Math.max(startSeconds + attackSeconds, endSeconds - releaseSeconds))
+  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
+  panner.pan.setValueAtTime(Math.max(-1, Math.min(1, (track.pan ?? 0) + (note.pan ?? 0))), startSeconds)
 
+  oscillator.connect(gain)
+  gain.connect(panner)
+  connectWithNoteReverb(context, panner, destination, note.reverb)
+  oscillator.start(startSeconds)
+  oscillator.stop(endSeconds + 0.02)
+}
+
+function createNoiseBuffer(context: OfflineAudioContext, durationSeconds: number) {
+  const buffer = context.createBuffer(1, Math.ceil(durationSeconds * context.sampleRate), context.sampleRate)
+  const channel = buffer.getChannelData(0)
+
+  for (let index = 0; index < channel.length; index += 1) {
+    channel[index] = Math.random() * 2 - 1
+  }
+
+  return buffer
+}
+
+function scheduleDrumNoise(
+  context: OfflineAudioContext,
+  destination: AudioNode,
+  startSeconds: number,
+  durationSeconds: number,
+  gainValue: number,
+  pan: number,
+  filterType: BiquadFilterType,
+  frequency: number,
+) {
+  const source = context.createBufferSource()
+  const filter = context.createBiquadFilter()
+  const gain = context.createGain()
+  const panner = context.createStereoPanner()
+  const endSeconds = startSeconds + durationSeconds
+
+  source.buffer = createNoiseBuffer(context, durationSeconds)
+  filter.type = filterType
+  filter.frequency.setValueAtTime(frequency, startSeconds)
+  gain.gain.setValueAtTime(0.0001, startSeconds)
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, gainValue), startSeconds + 0.002)
+  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
+  panner.pan.setValueAtTime(pan, startSeconds)
+  source.connect(filter)
+  filter.connect(gain)
+  gain.connect(panner)
+  panner.connect(destination)
+  source.start(startSeconds)
+  source.stop(endSeconds + 0.02)
+}
+
+function scheduleDrumTone(
+  context: OfflineAudioContext,
+  destination: AudioNode,
+  startSeconds: number,
+  durationSeconds: number,
+  gainValue: number,
+  pan: number,
+  startFrequency: number,
+  endFrequency: number,
+  type: OscillatorType = 'sine',
+) {
+  const oscillator = context.createOscillator()
+  const gain = context.createGain()
+  const panner = context.createStereoPanner()
+  const endSeconds = startSeconds + durationSeconds
+
+  oscillator.type = type
+  oscillator.frequency.setValueAtTime(startFrequency, startSeconds)
+  oscillator.frequency.exponentialRampToValueAtTime(endFrequency, endSeconds)
+  gain.gain.setValueAtTime(0.0001, startSeconds)
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, gainValue), startSeconds + 0.002)
+  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
+  panner.pan.setValueAtTime(pan, startSeconds)
   oscillator.connect(gain)
   gain.connect(panner)
   panner.connect(destination)
   oscillator.start(startSeconds)
   oscillator.stop(endSeconds + 0.02)
+}
+
+function scheduleDrumNote(
+  context: OfflineAudioContext,
+  destination: AudioNode,
+  project: Project,
+  totalBeats: number,
+  track: Track,
+  note: Note,
+) {
+  const startSeconds = getSecondsBetweenBeats(project, 0, note.startBeat, totalBeats)
+  const durationSeconds = getDrumDurationSeconds(
+    note.pitch,
+    Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats)),
+  )
+  const pan = Math.max(-1, Math.min(1, (track.pan ?? 0) + (note.pan ?? 0)))
+  const gainValue = Math.min(0.95, Math.max(0.04, getNoteGain(note, track) * 0.78))
+
+  if (note.pitch === 35 || note.pitch === 36) {
+    scheduleDrumTone(context, destination, startSeconds, Math.min(durationSeconds, 0.36), gainValue, pan, 120, 45)
+    return
+  }
+
+  if (note.pitch === 38 || note.pitch === 39 || note.pitch === 40) {
+    scheduleDrumNoise(context, destination, startSeconds, Math.min(durationSeconds, 0.24), gainValue * 0.95, pan, 'bandpass', 1800)
+    scheduleDrumTone(context, destination, startSeconds, 0.18, gainValue * 0.35, pan, 210, 140, 'triangle')
+    return
+  }
+
+  if (note.pitch === 42 || note.pitch === 44 || note.pitch === 46) {
+    const openHat = note.pitch === 46
+    scheduleDrumNoise(context, destination, startSeconds, openHat ? 0.42 : 0.12, gainValue * 0.62, pan, 'highpass', 6500)
+    return
+  }
+
+  if (note.pitch === 49 || note.pitch === 51 || note.pitch === 52 || note.pitch === 55 || note.pitch === 57 || note.pitch === 59) {
+    scheduleDrumNoise(context, destination, startSeconds, Math.min(durationSeconds, 0.9), gainValue * 0.72, pan, 'highpass', 3600)
+    return
+  }
+
+  if (note.pitch >= 41 && note.pitch <= 50) {
+    const tomFrequency = 170 - (note.pitch - 41) * 10
+    scheduleDrumTone(context, destination, startSeconds, Math.min(durationSeconds, 0.42), gainValue * 0.82, pan, tomFrequency, tomFrequency * 0.55)
+    return
+  }
+
+  scheduleDrumNoise(context, destination, startSeconds, Math.min(durationSeconds, 0.24), gainValue * 0.7, pan, 'bandpass', 2200)
 }
 
 function getDrumDurationSeconds(pitch: number, durationSeconds: number) {
@@ -253,18 +518,19 @@ function encodeMp3(buffer: AudioBuffer) {
 export async function exportMp3Project(project: Project) {
   const arrangedProject = expandProjectForArrangement(project)
   const totalBeats = getProjectEndBeat(arrangedProject)
-  const durationSeconds = Math.max(1, getSecondsBetweenBeats(arrangedProject, 0, totalBeats, totalBeats) + 0.15)
+  const durationSeconds = Math.max(1, getSecondsBetweenBeats(arrangedProject, 0, totalBeats, totalBeats) + 2.2)
   const context = new OfflineAudioContext(2, Math.ceil(durationSeconds * SAMPLE_RATE), SAMPLE_RATE)
   const master = context.createGain()
   master.gain.setValueAtTime(0.95, 0)
   master.connect(context.destination)
 
-  arrangedProject.tracks.forEach((track) => {
-    if (track.mute) return
-
-    const notes = arrangedProject.notesByTrack[track.id] ?? []
-    notes.forEach((note) => scheduleNote(context, master, arrangedProject, totalBeats, track, note))
-  })
+  await Promise.all(
+    arrangedProject.tracks.flatMap((track) => {
+      if (track.mute) return []
+      const notes = arrangedProject.notesByTrack[track.id] ?? []
+      return notes.map((note) => scheduleNote(context, master, arrangedProject, totalBeats, track, note))
+    }),
+  )
 
   await Promise.all(
     (arrangedProject.audioClips ?? []).map((clip) => {

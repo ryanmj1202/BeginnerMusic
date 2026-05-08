@@ -59,7 +59,7 @@ export function useArrangementActions({
   function addTrackPlacement(trackId: string, anchorBeat = getCurrentPlaybackBeat()) {
     const placement = createTrackPlacement(trackId, anchorBeat)
     setSelectedTrackPlacementId(placement.id)
-    setActiveEditorTab('arrange')
+    setActiveEditorTab('piano-roll')
     selectTrack(trackId)
     setProject((current) => ({
       ...current,

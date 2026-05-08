@@ -1,31 +1,33 @@
 import type {
   CSSProperties,
   PointerEvent as ReactPointerEvent,
-  ReactNode,
 } from 'react'
 import { getTrackPlacements, getTrackSourceEndBeat } from '../../../lib/arrangement/trackArrangement'
 import { getInstrumentImage } from '../../../lib/midi/generalMidi'
 import type {
+  AutoMixSection,
   PatternPlacement,
   Project,
 } from '../../../types/music'
 import { getPitchName } from '../helpers'
 
 type ArrangeViewProps = {
-  addAutoMixSectionFromPointer: (event: ReactPointerEvent<HTMLElement>) => void
   addTrackPlacement: (trackId: string) => void
   arrangedProject: Project
+  autoMixSections: AutoMixSection[]
   beginTrackPlacementDrag: (
     placement: PatternPlacement,
     event: ReactPointerEvent<HTMLElement>,
     type: 'move' | 'resize',
   ) => void
+  deleteAutoMixSection: (sectionId: string) => void
   deleteTrackPlacement: (placementId: string) => void
   focusTrackAtBeat: (trackId: string, beat: number) => void
   project: Project
-  renderAutoMixCutOverlay: () => ReactNode
   rollSurfaceStyle: CSSProperties
   selectTrack: (trackId: string) => void
+  selectAutoMixSection: (sectionId: string) => void
+  selectedAutoMixSectionId: string | null
   selectedTrackId: string | undefined
   selectedTrackPlacementId: string | null
   totalBeats: number
@@ -33,26 +35,28 @@ type ArrangeViewProps = {
 }
 
 export function ArrangeView({
-  addAutoMixSectionFromPointer,
   addTrackPlacement,
   arrangedProject,
+  autoMixSections,
   beginTrackPlacementDrag,
+  deleteAutoMixSection,
   deleteTrackPlacement,
   focusTrackAtBeat,
   project,
-  renderAutoMixCutOverlay,
   rollSurfaceStyle,
   selectTrack,
+  selectAutoMixSection,
+  selectedAutoMixSectionId,
   selectedTrackId,
   selectedTrackPlacementId,
   totalBeats,
   visibleBars,
 }: ArrangeViewProps) {
   return (
-    <div className="arrange-view" aria-label="편곡 배치" style={rollSurfaceStyle}>
+    <div className="arrange-view" aria-label="곡 구성" style={rollSurfaceStyle}>
       <header>
-        <strong>배치</strong>
-        <span>트랙 전체를 블록처럼 여러 번 배치하고, 그 배치대로 재생과 내보내기가 따라갑니다.</span>
+        <strong>곡 구성</strong>
+        <span>악기별 블록을 배치해 곡의 흐름을 만듭니다.</span>
         <div className="arrange-actions">
           <button
             type="button"
@@ -62,54 +66,83 @@ export function ArrangeView({
               addTrackPlacement(selectedTrackId)
             }}
           >
-            선택 트랙 배치 추가
+            선택한 악기 블록 추가
           </button>
         </div>
       </header>
       <div className="arrange-summary">
         <article>
           <strong>{project.tracks.length}</strong>
-          <span>전체 트랙</span>
+          <span>악기 수</span>
         </article>
         <article>
           <strong>{project.tracks.filter((track) => track.kind === 'audio').length}</strong>
-          <span>오디오 트랙</span>
+          <span>소리 파일 악기</span>
         </article>
         <article>
           <strong>{Object.values(project.notesByTrack).reduce((count, notes) => count + notes.length, 0)}</strong>
-          <span>음표 수</span>
+          <span>음 수</span>
         </article>
         <article>
           <strong>{(project.audioClips ?? []).length}</strong>
-          <span>클립 수</span>
+          <span>소리 파일</span>
         </article>
       </div>
       <div className="arrange-help">
         <article>
-          <strong>1. 전체 구조 확인</strong>
-          <span>어느 트랙에 멜로디와 오디오가 얼마나 들어갔는지 빠르게 훑습니다.</span>
+          <strong>1. 전체 보기</strong>
+          <span>악기별 멜로디와 소리 파일이 어디에 있는지 확인합니다.</span>
         </article>
         <article>
-          <strong>2. 바로 편집으로 이동</strong>
-          <span>파란 음표나 초록 오디오 클립을 누르면 그 트랙과 위치로 즉시 이동합니다.</span>
-        </article>
-        <article>
-          <strong>3. 컷 위치 잡기</strong>
-          <span>윗줄 빈 공간을 누르면 그 지점에 AutoMix 컷을 바로 추가할 수 있습니다.</span>
+          <strong>2. 바로 편집하기</strong>
+          <span>음표나 소리 파일을 누르면 해당 위치로 이동합니다.</span>
         </article>
       </div>
-      <div className="arrange-timeline" onPointerDown={addAutoMixSectionFromPointer}>
-        {renderAutoMixCutOverlay()}
+      <div className="arrange-timeline">
         {Array.from({ length: visibleBars }, (_, bar) => (
           <span key={bar}>{bar + 1}</span>
         ))}
       </div>
+      {false ? (
+        <div className="arrange-cut-lane" aria-label="자동 믹스 구간">
+          <span>커트</span>
+          <div className="arrange-cut-grid">
+            {autoMixSections.map((section) => (
+              <button
+                type="button"
+                className={section.id === selectedAutoMixSectionId ? 'is-selected' : ''}
+                key={section.id}
+                onPointerDown={() => selectAutoMixSection(section.id)}
+                style={{
+                  left: `${(section.startBeat / totalBeats) * 100}%`,
+                  width: `${Math.max(3, ((section.endBeat - section.startBeat) / totalBeats) * 100)}%`,
+                }}
+              >
+                <span>{section.name}</span>
+                <span
+                  className="arrange-cut-delete"
+                  onPointerDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    deleteAutoMixSection(section.id)
+                  }}
+                  role="button"
+                  aria-label={`${section.name} 삭제`}
+                >
+                  ×
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="arrange-lanes">
         {project.tracks.map((track) => {
           const notes = arrangedProject.notesByTrack[track.id] ?? []
           const clips = (arrangedProject.audioClips ?? []).filter((clip) => clip.trackId === track.id)
           const placements = getTrackPlacements(project, track.id)
           const sourceLengthBeats = getTrackSourceEndBeat(project, track.id)
+
           return (
             <div className="arrange-lane" key={track.id}>
               <button
@@ -130,7 +163,7 @@ export function ArrangeView({
                     addTrackPlacement(track.id)
                   }}
                 >
-                  ＋ 전체 트랙 배치
+                  ＋ 전체 블록
                 </button>
                 {placements.map((placement) => (
                   <div

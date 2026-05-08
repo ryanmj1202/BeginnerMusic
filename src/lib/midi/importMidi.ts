@@ -8,16 +8,41 @@ type MidiEvent = {
   startTick: number
   endTick: number
   velocity: number
+  modulation?: number
+  pan?: number
 }
+
+type RawMidiEvent =
+  | {
+      kind: 'control'
+      channel: number
+      controller: number
+      value: number
+      tick: number
+      trackIndex: number
+      order: number
+    }
+  | {
+      kind: 'noteOn'
+      channel: number
+      pitch: number
+      velocity: number
+      tick: number
+      trackIndex: number
+      order: number
+    }
+  | {
+      kind: 'noteOff'
+      channel: number
+      pitch: number
+      tick: number
+      trackIndex: number
+      order: number
+    }
 
 type TrackState = {
   name: string
   programByChannel: Map<number, number>
-}
-
-type ActiveNote = {
-  startTick: number
-  velocity: number
 }
 
 class MidiReader {
@@ -102,12 +127,12 @@ function parseTrack(
   reader: MidiReader,
   trackIndex: number,
   trackLength: number,
-  events: MidiEvent[],
+  events: RawMidiEvent[],
   trackStates: TrackState[],
   tempos: number[],
 ) {
   const endOffset = reader.position + trackLength
-  const activeNotes = new Map<string, ActiveNote[]>()
+  const controlStateByChannel = new Map<number, { modulation?: number; pan?: number }>()
   const trackState: TrackState = {
     name: `MIDI Track ${trackIndex + 1}`,
     programByChannel: new Map(),
@@ -165,27 +190,54 @@ function parseTrack(
 
     const pitch = reader.readUint8()
     const data2 = reader.readUint8()
-    const key = `${channel}-${pitch}`
+    const controlState = controlStateByChannel.get(channel) ?? {}
 
     if (eventType === 0x90 && data2 > 0) {
-      const active = activeNotes.get(key) ?? []
-      active.push({ startTick: tick, velocity: data2 / 127 })
-      activeNotes.set(key, active)
+      events.push({
+        kind: 'noteOn',
+        channel,
+        pitch,
+        velocity: data2 / 127,
+        tick,
+        trackIndex,
+        order: 20,
+      })
+      continue
+    }
+
+    if (eventType === 0xb0) {
+      events.push({
+        kind: 'control',
+        channel,
+        controller: pitch,
+        value: data2,
+        tick,
+        trackIndex,
+        order: 10,
+      })
+      if (pitch === 10) {
+        controlStateByChannel.set(channel, {
+          ...controlState,
+          pan: Math.max(-1, Math.min(1, data2 / 63.5 - 1)),
+        })
+      }
+      if (pitch === 1) {
+        controlStateByChannel.set(channel, {
+          ...controlState,
+          modulation: Math.max(0, Math.min(1, data2 / 127)),
+        })
+      }
       continue
     }
 
     if (eventType === 0x80 || eventType === 0x90) {
-      const active = activeNotes.get(key)
-      const started = active?.shift()
-      if (!started) continue
-
       events.push({
-        trackIndex,
+        kind: 'noteOff',
         channel,
         pitch,
-        startTick: started.startTick,
-        endTick: tick,
-        velocity: started.velocity,
+        tick,
+        trackIndex,
+        order: 30,
       })
     }
   }
@@ -212,6 +264,7 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
   }
 
   const events: MidiEvent[] = []
+  const rawEvents: RawMidiEvent[] = []
   const trackStates: TrackState[] = []
   const tempos: number[] = []
 
@@ -220,8 +273,81 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
       throw new Error('Invalid MIDI track')
     }
 
-    parseTrack(reader, trackIndex, reader.readUint32(), events, trackStates, tempos)
+    parseTrack(reader, trackIndex, reader.readUint32(), rawEvents, trackStates, tempos)
   }
+
+  const orderedEvents = [...rawEvents].sort((left, right) => (
+    left.tick - right.tick ||
+    left.order - right.order ||
+    left.trackIndex - right.trackIndex
+  ))
+  const channelControlState = new Map<number, { modulation?: number; pan?: number }>()
+  const activeNotes = new Map<string, Array<{ startTick: number; velocity: number; modulation?: number; pan?: number; trackIndex: number }>>()
+
+  orderedEvents.forEach((event) => {
+    if (event.kind === 'control') {
+      const current = channelControlState.get(event.channel) ?? {}
+      if (event.controller === 10) {
+        const pan = Math.max(-1, Math.min(1, event.value / 63.5 - 1))
+        channelControlState.set(event.channel, {
+          ...current,
+          pan,
+        })
+        activeNotes.forEach((notes, key) => {
+          if (key.startsWith(`${event.channel}-`)) {
+            notes.forEach((note) => {
+              note.pan = pan
+            })
+          }
+        })
+      }
+      if (event.controller === 1) {
+        const modulation = Math.max(0, Math.min(1, event.value / 127))
+        channelControlState.set(event.channel, {
+          ...current,
+          modulation,
+        })
+        activeNotes.forEach((notes, key) => {
+          if (key.startsWith(`${event.channel}-`)) {
+            notes.forEach((note) => {
+              note.modulation = modulation
+            })
+          }
+        })
+      }
+      return
+    }
+
+    const key = `${event.channel}-${event.pitch}`
+    if (event.kind === 'noteOn') {
+      const current = channelControlState.get(event.channel) ?? {}
+      const active = activeNotes.get(key) ?? []
+      active.push({
+        startTick: event.tick,
+        velocity: event.velocity,
+        modulation: current.modulation,
+        pan: current.pan,
+        trackIndex: event.trackIndex,
+      })
+      activeNotes.set(key, active)
+      return
+    }
+
+    const active = activeNotes.get(key)
+    const started = active?.shift()
+    if (!started) return
+
+    events.push({
+      trackIndex: started.trackIndex,
+      channel: event.channel,
+      pitch: event.pitch,
+      startTick: started.startTick,
+      endTick: event.tick,
+      velocity: started.velocity,
+      modulation: started.modulation,
+      pan: started.pan,
+    })
+  })
 
   const usedTrackIndexes = Array.from(new Set(events.map((event) => event.trackIndex)))
   const tracks: Track[] = usedTrackIndexes.map((trackIndex, index) => {
@@ -235,6 +361,7 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
       instrumentId: programToInstrument(program, firstEvent?.channel ?? 0),
       volume: 0.85,
       mute: false,
+      solo: false,
       channel: firstEvent ? firstEvent.channel + 1 : index + 1,
     }
   })
@@ -252,6 +379,8 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
         startBeat: event.startTick / ticksPerBeat,
         durationBeats: Math.max(0.25, (event.endTick - event.startTick) / ticksPerBeat),
         velocity: Math.max(0.1, event.velocity),
+        ...(event.modulation !== undefined ? { modulation: event.modulation } : {}),
+        ...(event.pan !== undefined ? { pan: event.pan } : {}),
       }))
   })
 
@@ -266,6 +395,7 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
             instrumentId: 'gm-0',
             volume: 0.85,
             mute: false,
+            solo: false,
             channel: 1,
           },
         ]
