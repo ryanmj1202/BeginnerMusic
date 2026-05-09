@@ -489,7 +489,7 @@ button:disabled {
 
 .track-action-button {
   flex: 1;
-  min-width: 0;
+  min-width: 100%;
   padding: 0.32rem 0.45rem;
   border: 1px solid #3a4252;
   border-radius: 999px;
@@ -1115,6 +1115,7 @@ button:disabled {
 .auto-mix-actions {
   display: flex;
   gap: 0.45rem;
+  margin-left: auto;
 }
 
 .auto-mix-actions button,
@@ -1140,6 +1141,7 @@ button:disabled {
 .auto-mix-section-list {
   display: grid;
   gap: 0.6rem;
+  border-bottom: 1px solid #303844;
 }
 
 .auto-mix-section-card {

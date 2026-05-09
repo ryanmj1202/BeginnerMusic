@@ -60,7 +60,7 @@ export function AutoMixPanel({
       <header className="auto-mix-header">
         <div>
           <strong>자동 균형 조정</strong>
-          <span>앞에 둔 악기일수록 자동 조정할 때 더 잘 들리게 합니다.</span>
+          <span>음악을 듣기 좋게 만들어 줍니다.</span>
         </div>
         <div className="auto-mix-actions">
           <button type="button" onPointerDown={applyAutoMix}>자동 균형 조정</button>
@@ -69,6 +69,9 @@ export function AutoMixPanel({
 
       <div className="auto-mix-section-list">
         <div className="auto-mix-easy-controls">
+          <div>
+            <strong>장르 선택</strong>
+          </div>
           <div className="auto-mix-genre-buttons" aria-label="장르별 추천 순서">
             {AUTO_MIX_GENRES.map((genre) => (
               <button
@@ -80,6 +83,9 @@ export function AutoMixPanel({
                 {genre.label}
               </button>
             ))}
+          </div>
+          <div>
+            <strong>세부 설정</strong>
           </div>
           <label>
             <span>적용 강도</span>

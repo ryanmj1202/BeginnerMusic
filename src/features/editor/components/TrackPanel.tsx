@@ -148,7 +148,7 @@ export function TrackPanel({
                   toggleTrackSolo(track.id, !track.solo)
                 }}
               >
-                S
+                독주
               </button>
               <button
                 type="button"
@@ -162,7 +162,7 @@ export function TrackPanel({
                   toggleTrackMute(track.id, !track.mute)
                 }}
               >
-                M
+                음소거
               </button>
             </div>
           </article>
