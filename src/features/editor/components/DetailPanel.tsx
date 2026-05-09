@@ -208,7 +208,6 @@ export function DetailPanel({
               className={activeDetailTerm === item.term ? 'is-active' : ''}
               key={item.term}
               onPointerDown={() => setActiveDetailTerm(item.term)}
-              title={`${item.label}: ${item.description}`}
               type="button"
             >
               <span>{item.term}</span>
@@ -218,7 +217,6 @@ export function DetailPanel({
         <button
           className="detail-toggle-button"
           onPointerDown={() => setDetailPanelOpen((current) => !current)}
-          title={detailPanelOpen ? '상세 편집 접기' : '상세 편집 펼치기'}
           type="button"
         >
           {detailPanelOpen ? '접기' : '펼치기'}
@@ -229,7 +227,7 @@ export function DetailPanel({
         <div className="velocity-lane">
           <div className="tempo-panel" aria-label="tempo panel">
             <label>
-              <span>Tempo</span>
+              <span>속도</span>
               <button type="button" onPointerDown={() => updateTempo(projectTempo - 5)}>-</button>
               <input
                 aria-label="Tempo"
@@ -288,7 +286,7 @@ export function DetailPanel({
             <div className="event-editor">
               <strong>음표 정보</strong>
               {sortedEditableSelectedNotes.length === 0 ? (
-                <span>선택한 음표 없음</span>
+                <span>선택한 음표 상자 없음</span>
               ) : (
                 <div className="event-grid">
                   <span>음높이</span>
@@ -337,7 +335,7 @@ export function DetailPanel({
 
       <div className="detail-footer">
         <button
-          aria-label="멈추고 처음으로 이동"
+          aria-label="중지"
           className="detail-stop-button"
           onPointerDown={resetPlayback}
           type="button"
@@ -352,7 +350,7 @@ export function DetailPanel({
         >
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <span>{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 없음'}</span>
+        <span>{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 상자 없음'}</span>
       </div>
     </section>
   )

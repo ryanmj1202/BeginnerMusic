@@ -73,7 +73,7 @@ export function TrackPanel({
           checked={allTrackMelodyMode}
           onChange={(event) => setAllTrackMelodyMode(event.target.checked)}
         />
-        <span>모든 악기 함께 편집</span>
+        <span>전체 악기 편집</span>
       </label>
 
       <div className="track-list" onContextMenu={openTrackPanelContextMenu}>
@@ -122,9 +122,9 @@ export function TrackPanel({
             </label>
 
             <label className="track-volume-control" onPointerDown={(event) => event.stopPropagation()}>
-              <span>좌우 위치</span>
+              <span>좌우 균형</span>
               <input
-                aria-label={`${track.name} 좌우 위치`}
+                aria-label={`${track.name} 좌우 균형`}
                 type="range"
                 min="-1"
                 max="1"
@@ -169,7 +169,7 @@ export function TrackPanel({
         ))}
 
         <button type="button" className="add-track-button" onPointerDown={addTrack}>＋ 악기 추가</button>
-        <button type="button" className="add-track-button" onPointerDown={applyAutoMix}>악기 균형 조정</button>
+        <button type="button" className="add-track-button" onPointerDown={applyAutoMix}>자동 균형 조정</button>
       </div>
     </aside>
   )

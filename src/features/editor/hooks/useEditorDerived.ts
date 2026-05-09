@@ -16,15 +16,15 @@ export function useEditorDerived(
   sortedEditableSelectedNotes: Note[],
 ) {
   const activeNoteControl = useMemo<ActiveNoteControl>(() => {
-    if (activeDetailTerm === '세게 치기') return makeControl('velocity', '세게 치기', 0.05, 1, 0.01)
-    if (activeDetailTerm === '음정 휘기') {
-      return { key: 'pitchBend', label: '음정 휘기', min: -2, max: 2, step: 0.1, format: (value) => value.toFixed(1) }
+    if (activeDetailTerm === '세기') return makeControl('velocity', '세기', 0.05, 1, 0.01)
+    if (activeDetailTerm === '휘기') {
+      return { key: 'pitchBend', label: '휘기', min: -2, max: 2, step: 0.1, format: (value) => value.toFixed(1) }
     }
-    if (activeDetailTerm === '음정 떨림') return makeControl('modulation', '음정 떨림', 0, 1, 0.01)
+    if (activeDetailTerm === '떨림') return makeControl('modulation', '떨림', 0, 1, 0.01)
     if (activeDetailTerm === '울림') return makeControl('reverb', '울림', 0, 1, 0.01)
     if (activeDetailTerm === '음량') return makeControl('volume', '음량', 0, 1, 0.01)
-    if (activeDetailTerm === '좌우 위치') return makeControl('pan', '좌우 위치', -1, 1, 0.01)
-    if (activeDetailTerm === '연주 강약') return makeControl('expression', '연주 강약', 0, 1, 0.01)
+    if (activeDetailTerm === '좌우 균형') return makeControl('pan', '좌우 균형', -1, 1, 0.01)
+    if (activeDetailTerm === '셈여림') return makeControl('expression', '셈여림', 0, 1, 0.01)
     return null
   }, [activeDetailTerm])
 

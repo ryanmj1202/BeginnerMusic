@@ -213,18 +213,18 @@ export const INSTRUMENT_CATEGORY_IMAGES: Record<string, InstrumentId> = {
 export const TRACK_COLORS = ['#5365d9', '#21a67a', '#d69b32', '#c95c8c', '#6a78f0', '#9b6bd3']
 export const TERMINOLOGY_HELP = [
   {
-    term: '세게 치기',
-    label: '세게 치기',
+    term: '세기',
+    label: '세기',
     description: '음표 하나가 얼마나 세게 연주되는지 정합니다.',
   },
   {
-    term: '음정 휘기',
-    label: '음정 휘기',
+    term: '휘기',
+    label: '휘기',
     description: '음이 위아래로 미끄러지듯 변하는 느낌입니다.',
   },
   {
-    term: '음정 떨림',
-    label: '음정 떨림',
+    term: '떨림',
+    label: '떨림',
     description: '음높이가 빠르고 작게 흔들리는 효과입니다.',
   },
   {
@@ -235,16 +235,16 @@ export const TERMINOLOGY_HELP = [
   {
     term: '음량',
     label: '음량',
-    description: '트랙 전체가 얼마나 크게 들리는지 정합니다.',
+    description: '악기 전체가 얼마나 크게 들리는지 정합니다.',
   },
   {
-    term: '좌우 위치',
-    label: '좌우 위치',
+    term: '좌우 균형',
+    label: '좌우 균형',
     description: '소리가 왼쪽, 가운데, 오른쪽 중 어디서 들릴지 정합니다.',
   },
   {
-    term: '연주 강약',
-    label: '연주 강약',
+    term: '셈여림',
+    label: '셈여림',
     description: '연주 중간의 세밀한 크기 변화를 다룹니다.',
   },
   {

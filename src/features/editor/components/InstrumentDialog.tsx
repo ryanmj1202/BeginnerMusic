@@ -202,9 +202,9 @@ export function InstrumentDialog({
         </div>
 
         {cloudOpen ? (
-          <section className="instrument-cloud-window" aria-label="악기 클라우드">
+          <section className="instrument-cloud-window" aria-label="악기 모음">
             <header>
-              <strong>악기 클라우드</strong>
+              <strong>악기 모음</strong>
               <button type="button" onPointerDown={() => setCloudOpen(false)}>닫기</button>
             </header>
             <input
@@ -250,19 +250,17 @@ export function InstrumentDialog({
                 previewInstrumentChoice('gm-0')
               }}
             />
-            리듬 트랙
+            반주 악기
           </label>
 
           <div className="instrument-dialog-actions">
             <button
               type="button"
-              disabled={!cloudAvailable}
-              title={cloudAvailable ? '온라인 SoundFont 악기 불러오기' : '네트워크 연결이 없어 기본 악기만 사용할 수 있습니다'}
-              onPointerDown={() => {
+              disabled={!cloudAvailable}              onPointerDown={() => {
                 if (cloudAvailable) setCloudOpen(true)
               }}
             >
-              악기 클라우드
+              악기 모음
             </button>
             <button type="button" onPointerDown={closeInstrumentDialog}>취소</button>
             <button type="button" className="primary-action" onPointerDown={confirmInstrumentDialog}>

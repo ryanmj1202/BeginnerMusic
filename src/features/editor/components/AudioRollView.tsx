@@ -63,9 +63,7 @@ export function AudioRollView({
               <button
                 type="button"
                 className="audio-roll-clip"
-                key={clip.id}
-                title={`${clip.name} · 음량 ${Math.round(clip.volume * 100)}`}
-                style={{
+                key={clip.id}                style={{
                   left: `${(clip.startBeat / totalBeats) * 100}%`,
                   width: `${Math.max(4, (clip.durationBeats / totalBeats) * 100)}%`,
                 }}

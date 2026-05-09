@@ -55,7 +55,7 @@ export function createInitialProject(): Project {
     tracks: [
       {
         id: firstTrackId,
-        name: '트랙 1',
+        name: '악기 1',
         instrumentId: 'gm-0',
         volume: 0.85,
         pan: 0,
@@ -85,7 +85,7 @@ export function normalizeProject(project: Project): Project {
   const tracks: Track[] = project.tracks?.length
     ? project.tracks.map((track, index) => ({
       ...track,
-      name: track.name?.startsWith('Track ') ? `트랙 ${index + 1}` : track.name,
+      name: track.name?.startsWith('Track ') ? `악기 ${index + 1}` : track.name,
       kind: track.kind ?? (track.instrumentId === 'audio-track' ? 'audio' as const : 'instrument' as const),
       pan: track.pan ?? 0,
       mute: track.mute ?? false,
@@ -96,7 +96,7 @@ export function normalizeProject(project: Project): Project {
     : [
       {
         id: fallbackTrackId,
-        name: '트랙 1',
+        name: '악기 1',
         instrumentId: 'gm-0',
         kind: 'instrument',
         volume: 0.85,

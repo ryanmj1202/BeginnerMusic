@@ -9,7 +9,6 @@ import type {
   PatternPlacement,
   Project,
 } from '../../../types/music'
-import { getPitchName } from '../helpers'
 
 type ArrangeViewProps = {
   addTrackPlacement: (trackId: string) => void
@@ -53,9 +52,9 @@ export function ArrangeView({
   visibleBars,
 }: ArrangeViewProps) {
   return (
-    <div className="arrange-view" aria-label="곡 구성" style={rollSurfaceStyle}>
+    <div className="arrange-view" aria-label="음악 구성" style={rollSurfaceStyle}>
       <header>
-        <strong>곡 구성</strong>
+        <strong>음악 구성</strong>
         <span>악기별 블록을 배치해 곡의 흐름을 만듭니다.</span>
         <div className="arrange-actions">
           <button
@@ -201,9 +200,7 @@ export function ArrangeView({
                   <button
                     type="button"
                     className="arrange-note"
-                    key={note.id}
-                    title={`${track.name} · ${getPitchName(note.pitch)} · ${Math.round(note.startBeat * 100) / 100}박`}
-                    onPointerDown={(event) => {
+                    key={note.id}                    onPointerDown={(event) => {
                       event.preventDefault()
                       focusTrackAtBeat(track.id, note.startBeat)
                     }}
@@ -217,9 +214,7 @@ export function ArrangeView({
                   <button
                     type="button"
                     className="arrange-audio-clip"
-                    key={clip.id}
-                    title={clip.name}
-                    onPointerDown={(event) => {
+                    key={clip.id}                    onPointerDown={(event) => {
                       event.preventDefault()
                       focusTrackAtBeat(track.id, clip.startBeat)
                     }}

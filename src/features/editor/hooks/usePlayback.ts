@@ -51,6 +51,7 @@ type UsePlaybackOptions = {
   activeTimeoutsRef: MutableRefObject<number[]>
   heldPreviewRef: MutableRefObject<HeldPreview | null>
   isPlaying: boolean
+  keyboardInputEnabled: boolean
   keyboardRecordingRef: MutableRefObject<Map<string, KeyboardRecordingNote>>
   keyPreviewRef: MutableRefObject<{ active: boolean }>
   lastPlayheadAutoScrollAtRef: MutableRefObject<number>
@@ -80,6 +81,7 @@ export function usePlayback({
   activeTimeoutsRef,
   heldPreviewRef,
   isPlaying,
+  keyboardInputEnabled,
   keyboardRecordingRef,
   keyPreviewRef,
   lastPlayheadAutoScrollAtRef,
@@ -478,7 +480,9 @@ export function usePlayback({
     playbackTempoTimelineRef.current = playbackTimeline
     playbackStartSecondsRef.current = getSecondsAtBeatFromTimeline(playbackTimeline, safeStartBeat)
     const hasSoloTrack = currentProject.tracks.some((item) => item.solo)
-    const playbackEndBeat = Math.max(safeStartBeat, getPlaybackContentEndBeat(arrangedPlaybackProject))
+    const playbackEndBeat = keyboardInputEnabled
+      ? totalBeats
+      : Math.max(safeStartBeat, getPlaybackContentEndBeat(arrangedPlaybackProject))
 
     arrangedPlaybackProject.tracks.forEach((track) => {
       if (track.mute || (hasSoloTrack && !track.solo)) return

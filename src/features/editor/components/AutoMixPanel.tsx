@@ -59,11 +59,11 @@ export function AutoMixPanel({
     <div className="auto-mix-panel">
       <header className="auto-mix-header">
         <div>
-          <strong>악기 균형 조정</strong>
+          <strong>자동 균형 조정</strong>
           <span>앞에 둔 악기일수록 자동 조정할 때 더 잘 들리게 합니다.</span>
         </div>
         <div className="auto-mix-actions">
-          <button type="button" onPointerDown={applyAutoMix}>자동으로 맞추기</button>
+          <button type="button" onPointerDown={applyAutoMix}>자동 균형 조정</button>
         </div>
       </header>
 
@@ -82,7 +82,7 @@ export function AutoMixPanel({
             ))}
           </div>
           <label>
-            <span>반영 정도</span>
+            <span>적용 강도</span>
             <i className="auto-mix-option-visual auto-mix-option-strength" aria-hidden="true" style={{ '--level': settings.strength } as CSSProperties}>
               <b />
               <b />
@@ -100,7 +100,7 @@ export function AutoMixPanel({
             <input type="range" min="0" max="1" step="0.05" value={settings.reverb} onChange={(event) => updateAutoMixSettings({ reverb: Number(event.target.value) })} />
           </label>
           <label>
-            <span>좌우 넓이</span>
+            <span>공간감</span>
             <i className="auto-mix-option-visual auto-mix-option-width" aria-hidden="true" style={{ '--level': settings.stereoWidth } as CSSProperties}>
               <b>♪</b>
               <b>♪</b>
@@ -108,7 +108,7 @@ export function AutoMixPanel({
             <input type="range" min="0" max="1" step="0.05" value={settings.stereoWidth} onChange={(event) => updateAutoMixSettings({ stereoWidth: Number(event.target.value) })} />
           </label>
           <label>
-            <span>소리 또렷함</span>
+            <span>선명도</span>
             <i className="auto-mix-option-visual auto-mix-option-brightness" aria-hidden="true" style={{ '--level': settings.brightness } as CSSProperties}>
               <b>♬</b>
             </i>

@@ -207,9 +207,7 @@ export function PianoRollView({
                   event.preventDefault()
                   event.stopPropagation()
                   selectAutoMixSection(section.id)
-                }}
-                title={`${section.name} 선택`}
-              >
+                }}              >
                 ✂
               </button>
             ))}
@@ -234,10 +232,8 @@ export function PianoRollView({
                     event.preventDefault()
                     event.stopPropagation()
                     ungroupSelectedPattern()
-                  }}
-                  title="그룹 해제 (Ctrl+U)"
-                >
-                  그룹 해제
+                  }}                >
+                  묶음 해제
                 </button>
               ) : null}
               <label
@@ -266,9 +262,7 @@ export function PianoRollView({
               </label>
               <span
                 className="pattern-repeat-handle"
-                onPointerDown={beginPatternRepeat}
-                title="오른쪽으로 늘려 패턴 반복"
-              />
+                onPointerDown={beginPatternRepeat}              />
             </span>
           ) : null}
 

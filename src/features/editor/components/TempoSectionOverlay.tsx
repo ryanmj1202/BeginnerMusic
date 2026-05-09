@@ -35,9 +35,7 @@ export function TempoSectionOverlay({
             type="button"
             className={isSelected ? 'tempo-section-marker is-selected' : 'tempo-section-marker'}
             key={section.id}
-            style={{ left: `${left}%`, width: `${width}%` }}
-            title={`${section.name} · ${section.tempo} BPM`}
-            onPointerDown={handlePointerDown}
+            style={{ left: `${left}%`, width: `${width}%` }}            onPointerDown={handlePointerDown}
           >
             <strong>{section.name || `템포 ${index + 1}`}</strong>
             <span>{section.tempo} BPM</span>

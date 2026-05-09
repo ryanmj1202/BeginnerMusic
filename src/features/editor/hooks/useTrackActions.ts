@@ -42,7 +42,7 @@ export function useTrackActions({
 
       const nextTrack: Track = {
         id: trackId,
-        name: `트랙 ${current.tracks.length + 1}`,
+        name: `악기 ${current.tracks.length + 1}`,
         instrumentId: 'gm-0',
         kind: 'instrument',
         volume: 0.85,

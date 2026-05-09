@@ -144,8 +144,8 @@ export function EditorLayout({
       <InstrumentDialog {...instrumentDialogProps} />
       {isAutoMixing ? (
         <div className="busy-overlay" role="status" aria-live="polite">
-          <strong>악기 균형 조정 중</strong>
-          <span>악기별 음량, 좌우 위치, 울림을 맞추고 있습니다.</span>
+          <strong>자동 균형 조정 중</strong>
+          <span>악기별 음량, 좌우 균형, 울림을 맞추고 있습니다.</span>
         </div>
       ) : null}
       {trackContextMenu ? (
@@ -175,7 +175,7 @@ export function EditorLayout({
           aria-orientation="vertical"
           onPointerDown={beginTrackPanelResize}
         />
-        <section className="piano-roll-area" aria-label="멜로디 만들기">
+        <section className="piano-roll-area" aria-label="음악 편집창">
           {activeEditorTab === 'piano-roll' ? (
             <PianoRollView {...pianoRollProps} />
           ) : null}
