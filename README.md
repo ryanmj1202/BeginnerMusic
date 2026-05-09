@@ -92,6 +92,8 @@ MIT License
 
 Copyright (c) 2026 강민재
 
+---
+
 ## 참고
 
 해당 프로젝트는 [OpenAI](https://openai.com)사의 인공지능 에이전트 [Codex](https://chatgpt.com/codex)를 활용해 개발되었습니다.
