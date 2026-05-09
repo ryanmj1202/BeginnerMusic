@@ -69,7 +69,7 @@ export function AutoMixPanel({
 
       <div className="auto-mix-section-list">
         <div className="auto-mix-easy-controls">
-          <div>
+          <div className="auto-mix-control-heading">
             <strong>장르 선택</strong>
           </div>
           <div className="auto-mix-genre-buttons" aria-label="장르별 추천 순서">
@@ -84,45 +84,60 @@ export function AutoMixPanel({
               </button>
             ))}
           </div>
-          <div>
+          <div className="auto-mix-control-heading">
             <strong>세부 설정</strong>
           </div>
-          <label>
-            <span>적용 강도</span>
-            <i className="auto-mix-option-visual auto-mix-option-strength" aria-hidden="true" style={{ '--level': settings.strength } as CSSProperties}>
-              <b />
-              <b />
-              <b />
-            </i>
-            <input type="range" min="0" max="1" step="0.05" value={settings.strength} onChange={(event) => updateAutoMixSettings({ strength: Number(event.target.value) })} />
-          </label>
-          <label>
-            <span>울림</span>
-            <i className="auto-mix-option-visual auto-mix-option-reverb" aria-hidden="true" style={{ '--level': settings.reverb } as CSSProperties}>
-              <b>♪</b>
-              <b>♪</b>
-              <b>♪</b>
-            </i>
-            <input type="range" min="0" max="1" step="0.05" value={settings.reverb} onChange={(event) => updateAutoMixSettings({ reverb: Number(event.target.value) })} />
-          </label>
-          <label>
-            <span>공간감</span>
-            <i className="auto-mix-option-visual auto-mix-option-width" aria-hidden="true" style={{ '--level': settings.stereoWidth } as CSSProperties}>
-              <b>♪</b>
-              <b>♪</b>
-            </i>
-            <input type="range" min="0" max="1" step="0.05" value={settings.stereoWidth} onChange={(event) => updateAutoMixSettings({ stereoWidth: Number(event.target.value) })} />
-          </label>
-          <label>
-            <span>선명도</span>
-            <i className="auto-mix-option-visual auto-mix-option-brightness" aria-hidden="true" style={{ '--level': settings.brightness } as CSSProperties}>
-              <b>♬</b>
-            </i>
-            <input type="range" min="0" max="1" step="0.05" value={settings.brightness} onChange={(event) => updateAutoMixSettings({ brightness: Number(event.target.value) })} />
-          </label>
+          <div className="auto-mix-control-group">
+            <strong>강도 변경</strong>
+            <label>
+              <span>적용 강도</span>
+              <i className="auto-mix-option-visual auto-mix-option-strength" aria-hidden="true" style={{ '--level': settings.strength } as CSSProperties}>
+                <b />
+                <b />
+                <b />
+              </i>
+              <input type="range" min="0" max="1" step="0.05" value={settings.strength} onChange={(event) => updateAutoMixSettings({ strength: Number(event.target.value) })} />
+            </label>
+          </div>
+          <div className="auto-mix-control-group">
+            <strong>울림 변경</strong>
+            <label>
+              <span>울림</span>
+              <i className="auto-mix-option-visual auto-mix-option-reverb" aria-hidden="true" style={{ '--level': settings.reverb } as CSSProperties}>
+                <b>♪</b>
+                <b>♪</b>
+                <b>♪</b>
+              </i>
+              <input type="range" min="0" max="1" step="0.05" value={settings.reverb} onChange={(event) => updateAutoMixSettings({ reverb: Number(event.target.value) })} />
+            </label>
+          </div>
+          <div className="auto-mix-control-group">
+            <strong>공간 변경</strong>
+            <label>
+              <span>공간감</span>
+              <i className="auto-mix-option-visual auto-mix-option-width" aria-hidden="true" style={{ '--level': settings.stereoWidth } as CSSProperties}>
+                <b>♪</b>
+                <b>♪</b>
+              </i>
+              <input type="range" min="0" max="1" step="0.05" value={settings.stereoWidth} onChange={(event) => updateAutoMixSettings({ stereoWidth: Number(event.target.value) })} />
+            </label>
+          </div>
+          <div className="auto-mix-control-group">
+            <strong>선명도 변경</strong>
+            <label>
+              <span>선명도</span>
+              <i className="auto-mix-option-visual auto-mix-option-brightness" aria-hidden="true" style={{ '--level': settings.brightness } as CSSProperties}>
+                <b>♬</b>
+              </i>
+              <input type="range" min="0" max="1" step="0.05" value={settings.brightness} onChange={(event) => updateAutoMixSettings({ brightness: Number(event.target.value) })} />
+            </label>
+          </div>
         </div>
 
         <div className="auto-mix-priority-grid">
+          <div className="auto-mix-control-heading">
+            <strong>우선순위 설정</strong>
+          </div>
           {orderedTracks.map((track) => {
             if (!track) return null
 

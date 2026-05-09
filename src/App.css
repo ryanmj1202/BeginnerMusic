@@ -1078,7 +1078,9 @@ button:disabled {
   height: calc(100vh - 40px - var(--detail-panel-height, 180px));
   min-height: 0;
   overflow: auto;
-  background: #1f222b;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(70, 91, 147, 0.13), transparent 30%),
+    linear-gradient(135deg, #181d24, #1f222b 58%, #171b22);
   color: #dce3ef;
 }
 
@@ -1091,8 +1093,8 @@ button:disabled {
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid #303844;
-  background: #20242d;
-  padding: 0.85rem 1rem;
+  background: rgba(28, 32, 40, 0.92);
+  padding: 1rem 1.4rem;
 }
 
 .auto-mix-header div:first-child,
@@ -1121,7 +1123,7 @@ button:disabled {
 .auto-mix-actions button,
 .auto-mix-section-card button {
   border: 1px solid #364052;
-  border-radius: 4px;
+  border-radius: 5px;
   background: #171b23;
   color: #dce3ef;
   padding: 0.5rem 0.75rem;
@@ -1135,13 +1137,12 @@ button:disabled {
 
 .auto-mix-empty,
 .auto-mix-section-list {
-  margin: 1rem;
+  margin: 1.4rem;
 }
 
 .auto-mix-section-list {
   display: grid;
-  gap: 0.6rem;
-  border-bottom: 1px solid #303844;
+  gap: 1.9rem;
 }
 
 .auto-mix-section-card {
@@ -1218,28 +1219,36 @@ button:disabled {
 }
 
 .auto-mix-priority-grid {
-  display: flex;
-  gap: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  border-top: 1px solid #303844;
+  gap: 0.75rem;
   overflow-x: auto;
   padding-bottom: 0.25rem;
-  scroll-snap-type: x proximity;
+  padding-top: 1.05rem;
+}
+
+.auto-mix-priority-grid h2 {
+  grid-column: 1 / -1;
+  margin: 0 0 0.1rem;
+  color: #ffffff;
+  font-size: 1.3rem;
+  line-height: 1.2;
 }
 
 .auto-mix-priority-card {
   display: grid;
-  flex: 0 0 104px;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto;
   align-items: stretch;
-  width: 104px;
-  height: 104px;
+  width: 100%;
+  height: 132px;
   gap: 0.35rem;
-  border: 1px solid #272f3c;
-  border-radius: 4px;
-  background: #10131a;
+  border: 1px solid #364150;
+  border-radius: 5px;
+  background: rgba(16, 19, 26, 0.72);
   cursor: grab;
-  padding: 0.5rem;
-  scroll-snap-align: start;
+  padding: 0.72rem 0.65rem;
   transition:
     border-color 0.16s ease,
     box-shadow 0.16s ease,
@@ -1265,24 +1274,29 @@ button:disabled {
 .auto-mix-easy-controls {
   display: grid;
   grid-template-columns: repeat(4, minmax(96px, 1fr));
-  gap: 0.4rem;
+  column-gap: 0.85rem;
+  row-gap: 0.48rem;
 }
 
 .auto-mix-genre-buttons {
   display: flex;
   grid-column: 1 / -1;
-  gap: 0.35rem;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+  margin-bottom: 1rem;
   overflow-x: auto;
 }
 
 .auto-mix-genre-buttons button {
   flex: 0 0 auto;
   border: 1px solid #303844;
-  border-radius: 4px;
-  background: #171b23;
+  border-radius: 5px;
+  background: rgba(17, 22, 30, 0.82);
   color: #c8d2e2;
-  font-size: 0.76rem;
-  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  min-width: 96px;
+  padding: 0.62rem 0.8rem;
 }
 
 .auto-mix-genre-buttons button.is-active {
@@ -1291,17 +1305,46 @@ button:disabled {
   color: #ffffff;
 }
 
-.auto-mix-easy-controls label {
+.auto-mix-control-heading {
+  grid-column: 1 / -1;
+}
+
+.auto-mix-genre-buttons + .auto-mix-control-heading {
+  border-top: 1px solid #303844;
+  margin-top: 0.15rem;
+  margin-bottom: 0.45rem;
+  padding-top: 1.05rem;
+}
+
+.auto-mix-control-heading strong {
+  color: #ffffff;
+  font-size: 1.16rem;
+  line-height: 1.2;
+}
+
+.auto-mix-control-group {
   display: grid;
-  grid-template-rows: auto 52px auto;
-  gap: 0.18rem;
-  min-height: 98px;
-  border: 1px solid #272f3c;
-  border-radius: 4px;
-  background: #10131a;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.auto-mix-control-group > strong {
+  color: #dfe7f5;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.auto-mix-control-group label {
+  display: grid;
+  grid-template-rows: auto 62px auto;
+  gap: 0.25rem;
+  min-height: 130px;
+  border: 1px solid #364150;
+  border-radius: 5px;
+  background: rgba(16, 19, 26, 0.64);
   color: #9ba7b8;
-  font-size: 0.76rem;
-  padding: 0.35rem 0.5rem 0.28rem;
+  font-size: 0.8rem;
+  padding: 0.65rem 0.8rem 0.62rem;
 }
 
 .auto-mix-easy-controls input {
@@ -1312,10 +1355,10 @@ button:disabled {
 .auto-mix-option-visual {
   position: relative;
   display: block;
-  height: 52px;
+  height: 62px;
   overflow: hidden;
   border-radius: 3px;
-  background: #0d1118;
+  background: rgba(13, 17, 24, 0.58);
   font-style: normal;
 }
 
@@ -1403,15 +1446,15 @@ button:disabled {
 
 .auto-mix-instrument-name {
   display: grid;
-  grid-template-rows: 42px auto auto;
+  grid-template-rows: 48px auto auto;
   justify-items: center;
-  gap: 0.18rem;
+  gap: 0.2rem;
   text-align: center;
 }
 
 .auto-mix-instrument-name img {
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
 }
 

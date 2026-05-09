@@ -1,3 +1,4 @@
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type {
   CSSProperties,
   Dispatch,
@@ -141,6 +142,50 @@ export function PianoRollView({
   visibleBars,
   zoomRoll,
 }: PianoRollViewProps) {
+  const zoomAnchorRef = useRef<{ gridRatio: number, pointerX: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current
+    const roll = pianoRollRef.current
+    if (!anchor || !roll) return
+
+    const nextGridWidth = Number.parseFloat(getComputedStyle(roll).getPropertyValue('--roll-grid-width')) || 1
+    roll.scrollLeft = Math.max(
+      0,
+      Math.min(
+        roll.scrollWidth - roll.clientWidth,
+        KEY_COLUMN_WIDTH + anchor.gridRatio * nextGridWidth - anchor.pointerX,
+      ),
+    )
+    zoomAnchorRef.current = null
+  }, [pianoRollRef, rollZoom])
+
+  useEffect(() => {
+    function handleRollZoomWheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) return
+
+      const target = event.target
+      if (!(target instanceof Element) || !target.closest('.piano-roll')) return
+
+      const roll = pianoRollRef.current
+      if (!roll) return
+
+      const rect = roll.getBoundingClientRect()
+      const pointerX = event.clientX - rect.left
+      const gridWidth = Number.parseFloat(getComputedStyle(roll).getPropertyValue('--roll-grid-width')) || 1
+      const gridX = roll.scrollLeft + pointerX - KEY_COLUMN_WIDTH
+      const gridRatio = Math.max(0, Math.min(1, gridX / gridWidth))
+
+      event.preventDefault()
+      event.stopPropagation()
+      zoomAnchorRef.current = { gridRatio, pointerX }
+      zoomRoll(event.deltaY > 0 ? -1 : 1)
+    }
+
+    window.addEventListener('wheel', handleRollZoomWheel, { capture: true, passive: false })
+    return () => window.removeEventListener('wheel', handleRollZoomWheel, { capture: true })
+  }, [zoomRoll])
+
   return (
     <>
       <PianoRollToolbar
