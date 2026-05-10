@@ -222,9 +222,10 @@ export function usePlayback({
       0,
       (getSecondsAtBeatFromTimeline(timeline, note.startBeat) - getSecondsAtBeatFromTimeline(timeline, currentBeat)) * 1000,
     )
+    const bentPitch = note.pitch + (note.pitchBend ?? 0)
     const noteInput = track.instrument.expectsMidi
-      ? note.pitch
-      : Tone.Frequency(note.pitch, 'midi').toFrequency()
+      ? bentPitch
+      : Tone.Frequency(bentPitch, 'midi').toFrequency()
     const notePan = Math.max(-1, Math.min(1, note.pan ?? 0))
     const routedPan = Math.max(-1, Math.min(1, (track.pan ?? 0) + notePan))
     const notePitch = note.pitch

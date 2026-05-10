@@ -84,11 +84,15 @@ export type PatternRepeatDrag = {
 }
 
 export type KeyboardRecordingNote = {
+  channel?: number
+  eventStartMs?: number
   liveNoteInput: number | null
   noteId: string
+  releaseTimeStamp?: number
   pitch: number
   startBeat: number
   trackId: string
+  velocity: number
 }
 
 export type TrackContextMenu = {
