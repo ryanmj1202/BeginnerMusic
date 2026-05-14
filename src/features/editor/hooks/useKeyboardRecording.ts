@@ -1,9 +1,4 @@
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from 'react'
-import { useEffect, useRef } from 'react'
+﻿import { useEffect, useRef } from 'react'
 import * as Tone from 'tone'
 import {
   createInstrument,
@@ -12,7 +7,6 @@ import {
 } from '../../../lib/audio/toneTransport'
 import type {
   Note,
-  Project,
   Track,
 } from '../../../types/music'
 import {
@@ -25,71 +19,19 @@ import {
   buildTempoTimeline,
   createId,
   getBeatAtSecondsFromTimeline,
-  type TempoTimelineSegment,
 } from '../helpers'
 import type {
-  ActivePlaybackTrack,
   KeyboardRecordingNote,
 } from '../types'
-
-type UseKeyboardRecordingOptions = {
-  activePlaybackTracksRef: MutableRefObject<ActivePlaybackTrack[]>
-  getMinimumPlaybackDrumSeconds: (pitch: number, durationSeconds: number) => number
-  isPlaying: boolean
-  keyboardInputEnabled: boolean
-  keyboardRecordingRef: MutableRefObject<Map<string, KeyboardRecordingNote>>
-  playbackBeatRef: MutableRefObject<number>
-  playbackStartMsRef: MutableRefObject<number>
-  playbackStartSecondsRef: MutableRefObject<number>
-  playbackTempoTimelineRef: MutableRefObject<TempoTimelineSegment[]>
-  projectRef: MutableRefObject<Project>
-  selectedTrack: Track | undefined
-  setProject: Dispatch<SetStateAction<Project>>
-  setSelectedNoteIds: Dispatch<SetStateAction<string[]>>
-  totalBeats: number
-  totalBeatsRef: MutableRefObject<number>
-}
-
-type MidiNavigator = Navigator & {
-  requestMIDIAccess?: () => Promise<MIDIAccess>
-}
-
-type MidiPerformanceControls = {
-  expression: number
-  modulation: number
-  pan: number
-  pitchBend: number
-  reverb: number
-  sustain: boolean
-  volume: number
-}
-
-type LiveMidiVoice = {
-  echo: Tone.FeedbackDelay | null
-  instrument: ReturnType<typeof createInstrument>
-  noteInput: number
-  panner: Tone.Panner | null
-  trackId: string
-  vibrato: Tone.Vibrato | null
-}
-
-const DEFAULT_MIDI_CONTROLS: MidiPerformanceControls = {
-  expression: 1,
-  modulation: 0,
-  pan: 0,
-  pitchBend: 0,
-  reverb: 0,
-  sustain: false,
-  volume: 1,
-}
-
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value))
-}
-
-function clampPan(value: number) {
-  return Math.max(-1, Math.min(1, value))
-}
+import {
+  clamp01,
+  clampPan,
+  DEFAULT_MIDI_CONTROLS,
+  type LiveMidiVoice,
+  type MidiPerformanceControls,
+  type UseKeyboardRecordingOptions,
+} from './keyboardRecordingTypes'
+import { useMidiInput } from './useMidiInput'
 
 export function useKeyboardRecording({
   activePlaybackTracksRef,
@@ -572,70 +514,16 @@ export function useKeyboardRecording({
     keyboardRecordingRef.current.clear()
   }, [selectedTrack?.id])
 
-  useEffect(() => {
-    const midiNavigator = navigator as MidiNavigator
-    if (!keyboardInputEnabled || !midiNavigator.requestMIDIAccess) return undefined
-
-    let cancelled = false
-    let midiAccess: MIDIAccess | null = null
-    const connectedInputs: MIDIInput[] = []
-
-    function handleMidiMessage(event: MIDIMessageEvent) {
-      if (!event.data) return
-      const [status = 0, first = 0, second = 0] = event.data
-      const command = status & 0xf0
-      const channel = status & 0x0f
-      if (command === 0x90 && second > 0) {
-        startMidiNote(channel, first, Math.max(0.01, Math.min(1, second / 127)), event.timeStamp)
-        return
-      }
-      if (command === 0x80 || command === 0x90) {
-        finishMidiNote(channel, first, event.timeStamp)
-        return
-      }
-      if (command === 0xb0) {
-        handleMidiControlChange(channel, first, second, event.timeStamp)
-        return
-      }
-      if (command === 0xc0) {
-        handleMidiProgramChange(channel, first)
-        return
-      }
-      if (command === 0xe0) {
-        handleMidiPitchBend(channel, first, second)
-        return
-      }
-      if (command === 0xa0 || command === 0xd0) {
-        handleMidiAftertouch(channel, command === 0xd0 ? first : second)
-      }
-    }
-
-    function connectInputs(access: MIDIAccess) {
-      connectedInputs.forEach((input) => {
-        input.onmidimessage = null
-      })
-      connectedInputs.length = 0
-      access.inputs.forEach((input) => {
-        input.onmidimessage = handleMidiMessage
-        connectedInputs.push(input)
-      })
-    }
-
-    void midiNavigator.requestMIDIAccess().then((access) => {
-      if (cancelled) return
-      midiAccess = access
-      connectInputs(access)
-      access.onstatechange = () => connectInputs(access)
-    }).catch(() => undefined)
-
-    return () => {
-      cancelled = true
-      connectedInputs.forEach((input) => {
-        input.onmidimessage = null
-      })
-      if (midiAccess) midiAccess.onstatechange = null
-    }
-  }, [keyboardInputEnabled, isPlaying])
+  useMidiInput({
+    finishMidiNote,
+    handleMidiAftertouch,
+    handleMidiControlChange,
+    handleMidiPitchBend,
+    handleMidiProgramChange,
+    isPlaying,
+    keyboardInputEnabled,
+    startMidiNote,
+  })
 
   return {
     finishKeyboardNote,

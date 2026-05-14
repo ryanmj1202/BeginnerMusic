@@ -7,7 +7,6 @@ import type {
   RefObject,
   SetStateAction,
 } from 'react'
-import { isDrumInstrument } from '../../../lib/audio/toneTransport'
 import type {
   AudioClip,
   AutoMixSection,
@@ -17,7 +16,6 @@ import type {
 } from '../../../types/music'
 import {
   KEY_COLUMN_WIDTH,
-  NOTE_NAMES,
   ROLL_HEADER_HEIGHT,
   ROLL_ROW_HEIGHT,
 } from '../constants'
@@ -31,6 +29,7 @@ import type {
   TrackNote,
 } from '../types'
 import { AudioRollView } from './AudioRollView'
+import { PianoRollRows } from './PianoRollRows'
 import { PianoRollToolbar } from './PianoRollToolbar'
 
 type PianoRollViewProps = {
@@ -75,6 +74,7 @@ type PianoRollViewProps = {
   selectedPatternRepeatGroup: PatternRepeatGroup | null
   selectedTrack: Track | undefined
   selectedTrackIsAudio: boolean
+  tracks: Track[]
   selectionBox: SelectionBox | null
   setKeyboardInputEnabled: Dispatch<SetStateAction<boolean>>
   selectAutoMixSection: (sectionId: string) => void
@@ -130,6 +130,7 @@ export function PianoRollView({
   selectedPatternRepeatGroup,
   selectedTrack,
   selectedTrackIsAudio,
+  tracks,
   selectionBox,
   setKeyboardInputEnabled,
   selectAutoMixSection,
@@ -253,7 +254,7 @@ export function PianoRollView({
                   event.stopPropagation()
                   selectAutoMixSection(section.id)
                 }}              >
-                ✂
+                컷
               </button>
             ))}
           </div> : null}
@@ -303,7 +304,7 @@ export function PianoRollView({
                     }
                   }}
                 />
-                <em>칸</em>
+                <em>박</em>
               </label>
               <span
                 className="pattern-repeat-handle"
@@ -332,116 +333,31 @@ export function PianoRollView({
             </svg>
           ) : null}
 
-          {rollPitches.map((pitch) => (
-            <div className="roll-row" key={pitch}>
-              <button
-                type="button"
-                className={`${selectedTrack && isDrumInstrument(selectedTrack.instrumentId) ? 'piano-key is-drum' : NOTE_NAMES[pitch % 12].includes('#') ? 'piano-key is-black' : 'piano-key'}${pressedPitch === pitch ? ' is-pressed' : ''
-                  }${playbackPressedPitchCounts.has(pitch) ? ' is-playback-pressed' : ''
-                  }`}
-                data-pitch={pitch}
-                onPointerDown={(event) => {
-                  beginKeyPreview(pitch, event)
-                }}
-                onPointerEnter={() => continueKeyPreview(pitch)}
-              >
-                {getRowLabel(pitch)}
-              </button>
-              <div
-                className="step-row"
-                onPointerDown={(event) => beginRowAction(pitch, event)}
-                onContextMenu={(event) => beginRowContextErase(pitch, event)}
-              >
-                {(otherNotesByPitch.get(pitch) ?? []).map((note) => {
-                  const className = [
-                    'note-block',
-                    allTrackMelodyMode ? 'is-all-track-note' : 'is-ghost',
-                    selectedNoteIdSet.has(note.id) ? 'is-selected' : '',
-                    selectedNoteIdSet.has(note.id) && selectedNoteIds.length > 1 ? 'is-pattern-selected' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')
-
-                  if (!allTrackMelodyMode) {
-                    return (
-                      <span
-                        className={className}
-                        key={`${note.trackId}-${note.id}`}
-                        style={{
-                          left: `${(note.startBeat / totalBeats) * 100}%`,
-                          width: `${(note.durationBeats / totalBeats) * 100}%`,
-                        }}
-                        aria-hidden="true"
-                      />
-                    )
-                  }
-
-                  return (
-                    <button
-                      type="button"
-                      className={className}
-                      key={`${note.trackId}-${note.id}`}
-                      style={{
-                        left: `${(note.startBeat / totalBeats) * 100}%`,
-                        width: `${(note.durationBeats / totalBeats) * 100}%`,
-                      }}
-                      onPointerDown={(event) => {
-                        beginMoveNote(note, event)
-                      }}
-                    />
-                  )
-                })}
-
-                {(selectedNotesByPitch.get(pitch) ?? []).map((note) => {
-                  const className = [
-                    'note-block',
-                    note.id === projectSelectedNoteId || selectedNoteIdSet.has(note.id) ? 'is-selected' : '',
-                    selectedNoteIdSet.has(note.id) && selectedNoteIds.length > 1 ? 'is-pattern-selected' : '',
-                    draggingNoteId === note.id ? 'is-dragging' : '',
-                    resizingNoteId === note.id ? 'is-resizing' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')
-
-                  return (
-                    <button
-                      type="button"
-                      className={className}
-                      key={note.id}
-                      style={{
-                        left: `${(note.startBeat / totalBeats) * 100}%`,
-                        width: `${(note.durationBeats / totalBeats) * 100}%`,
-                      }}
-                      onPointerDown={(event) => {
-                        beginMoveNote(note, event)
-                      }}
-                      onPointerDownCapture={(event) => {
-                        beginRightEraseNote(note, event)
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                      }}
-                      aria-label={`${getNoteDisplayLabel(note)} 음표`}
-                    >
-                      <span
-                        className="resize-handle resize-handle-start"
-                        data-edge="start"
-                        onPointerDown={(event) => startResizingNote(note, event)}
-                        aria-hidden="true"
-                      />
-                      <span className="note-label">{getNoteDisplayLabel(note)}</span>
-                      <span
-                        className="resize-handle"
-                        data-edge="end"
-                        onPointerDown={(event) => startResizingNote(note, event)}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+          <PianoRollRows
+            allTrackMelodyMode={allTrackMelodyMode}
+            beginKeyPreview={beginKeyPreview}
+            beginMoveNote={beginMoveNote}
+            beginRightEraseNote={beginRightEraseNote}
+            beginRowAction={beginRowAction}
+            beginRowContextErase={beginRowContextErase}
+            continueKeyPreview={continueKeyPreview}
+            draggingNoteId={draggingNoteId}
+            getNoteDisplayLabel={getNoteDisplayLabel}
+            getRowLabel={getRowLabel}
+            otherNotesByPitch={otherNotesByPitch}
+            playbackPressedPitchCounts={playbackPressedPitchCounts}
+            pressedPitch={pressedPitch}
+            projectSelectedNoteId={projectSelectedNoteId}
+            resizingNoteId={resizingNoteId}
+            rollPitches={rollPitches}
+            selectedNoteIdSet={selectedNoteIdSet}
+            selectedNoteIds={selectedNoteIds}
+            selectedNotesByPitch={selectedNotesByPitch}
+            selectedTrack={selectedTrack}
+            tracks={tracks}
+            startResizingNote={startResizingNote}
+            totalBeats={totalBeats}
+          />
         </div>
       )}
     </>

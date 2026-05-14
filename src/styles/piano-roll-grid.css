@@ -1,0 +1,408 @@
+﻿.corner-cell,
+.measure-row {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+}
+
+.corner-cell {
+  left: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid #333a46;
+  border-bottom: 1px solid #333a46;
+  background: #20242d;
+}
+
+.measure-row {
+  position: sticky;
+  display: grid;
+  cursor: pointer;
+  background:
+    linear-gradient(to bottom, transparent 0 12px, rgba(83, 101, 217, 0.14) 12px 20px, transparent 20px),
+    #20242d;
+}
+
+.timeline-seek-fill {
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: var(--playhead-left, 0%);
+  height: 6px;
+  border-radius: 0 6px 6px 0;
+  background: rgba(83, 101, 217, 0.62);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.timeline-seek-handle {
+  position: absolute;
+  left: var(--playhead-left, 0%);
+  top: 7px;
+  width: 14px;
+  height: 18px;
+  border: 1px solid #c8d0ff;
+  border-radius: 4px;
+  background: #5365d9;
+  box-shadow: 0 0 0 3px rgba(83, 101, 217, 0.22);
+  pointer-events: none;
+  transform: translateX(-50%);
+  z-index: 4;
+}
+
+.measure-cell {
+  position: relative;
+  border-right: 1px solid #303642;
+  border-bottom: 1px solid #333a46;
+  background: transparent;
+  color: #8f9bad;
+  font-size: 0.72rem;
+  line-height: 32px;
+  text-align: left;
+  z-index: 2;
+}
+
+.measure-cell {
+  border-left: 1px solid #586171;
+}
+
+.roll-grid-guides,
+.roll-playhead-layer {
+  position: absolute;
+  left: 64px;
+  top: 32px;
+  width: max(var(--roll-grid-width), calc(100% - 64px));
+  height: var(--roll-grid-height);
+  pointer-events: none;
+}
+
+.roll-grid-guides {
+  z-index: 0;
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--step-width) - 1px),
+      #292f3a calc(var(--step-width) - 1px),
+      #292f3a var(--step-width)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--beat-width) - 1px),
+      #343b48 calc(var(--beat-width) - 1px),
+      #343b48 var(--beat-width)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--bar-width) - 1px),
+      #566071 calc(var(--bar-width) - 1px),
+      #566071 var(--bar-width)
+    ),
+    #20242d;
+}
+
+.roll-playhead-layer {
+  z-index: 6;
+}
+
+.roll-playhead {
+  position: absolute;
+  left: var(--playhead-left, 0%);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #ff3131;
+  opacity: 0.9;
+  transform: translateX(-0.5px);
+  will-change: left;
+}
+
+.pattern-selection-box {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid #8fa0ff;
+  border-radius: 2px;
+  background: rgba(83, 101, 217, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(219, 224, 255, 0.16);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.pattern-repeat-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  border-radius: 4px;
+  background: #8fa0ff;
+  cursor: ew-resize;
+}
+
+.pattern-repeat-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 46%;
+  border-radius: 999px;
+  background: #192033;
+  content: '';
+  transform: translate(-50%, -50%);
+}
+
+.pattern-ungroup-button {
+  position: absolute;
+  top: -24px;
+  left: 0;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid #8fa0ff;
+  border-radius: 3px;
+  background: rgba(16, 24, 45, 0.9);
+  color: #dbe0ff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pattern-ungroup-button:hover {
+  background: rgba(34, 48, 83, 0.94);
+}
+
+.pattern-gap-control {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid #8fa0ff;
+  border-radius: 3px;
+  background: rgba(16, 24, 45, 0.92);
+  color: #dbe0ff;
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+.pattern-gap-control input {
+  width: 52px;
+  height: 16px;
+  border: 1px solid #495877;
+  border-radius: 2px;
+  background: #111827;
+  color: #e7ecff;
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+.pattern-gap-control em {
+  font-style: normal;
+  color: #9faad5;
+}
+
+.pattern-selection-box.is-selecting {
+  background: rgba(83, 101, 217, 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgba(219, 224, 255, 0.2),
+    0 0 0 1px rgba(83, 101, 217, 0.18);
+}
+
+.lasso-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.lasso-overlay polygon {
+  fill: rgba(83, 101, 217, 0.2);
+  stroke: none;
+}
+
+.lasso-overlay polyline {
+  fill: none;
+  stroke: #9cadff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.lasso-overlay circle {
+  fill: #dbe2ff;
+  stroke: #5365d9;
+  stroke-width: 1;
+}
+
+.roll-row {
+  display: contents;
+}
+
+.piano-key {
+  position: sticky;
+  left: 0;
+  z-index: 8;
+  border: 0;
+  border-right: 1px solid #333a46;
+  border-bottom: 1px solid #222834;
+  border-radius: 0;
+  background: linear-gradient(90deg, #f4f6fa 0 70%, #d0d4dc 100%);
+  color: #8b96a8;
+  font-size: 0.72rem;
+  text-align: right;
+  padding: 0 0.28rem 0 0;
+}
+
+.piano-key.is-black {
+  background: linear-gradient(90deg, #05070a 0 68%, #323640 100%);
+  color: transparent;
+}
+
+.piano-key.is-drum {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  border-right-color: #263241;
+  background:
+    linear-gradient(90deg, rgba(83, 101, 217, 0.14), transparent 55%),
+    #151b24;
+  color: #b9c4d5;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0 0.45rem 0 0.3rem;
+  white-space: nowrap;
+}
+
+.piano-key.is-drum:nth-child(4n + 1) {
+  background:
+    linear-gradient(90deg, rgba(71, 176, 143, 0.14), transparent 55%),
+    #151b24;
+}
+
+.piano-key.is-pressed,
+.piano-key.is-playback-pressed {
+  background: #6a78f0;
+  color: #ffffff;
+}
+
+.piano-key.is-drum.is-pressed,
+.piano-key.is-drum.is-playback-pressed {
+  background: #3d82a8;
+  color: #ffffff;
+}
+
+.piano-key.is-black.is-pressed,
+.piano-key.is-black.is-playback-pressed {
+  background: #5262d8;
+  color: #ffffff;
+}
+
+.step-row {
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid #292f3a;
+  background: transparent;
+  cursor: default;
+  contain: layout paint;
+}
+
+.step-row:nth-child(4n + 1) {
+  background-color: rgba(28, 32, 40, 0.28);
+}
+
+.note-block {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  min-width: 10px;
+  border: 1px solid color-mix(in srgb, var(--note-color, #5365d9) 78%, #ffffff);
+  border-radius: 2px;
+  background: var(--note-color, #5365d9);
+  color: #edf1ff;
+  cursor: grab;
+  padding: 0;
+  z-index: 3;
+  contain: layout paint;
+  overflow: hidden;
+}
+
+.note-label {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  color: #edf1ff;
+  font-size: 0.62rem;
+  line-height: 1;
+  text-overflow: ellipsis;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.note-block:hover,
+.note-block.is-resizing {
+  background: color-mix(in srgb, var(--note-color, #5365d9) 82%, #ffffff);
+}
+
+.note-block.is-dragging {
+  border-color: #dbe0ff;
+  background: color-mix(in srgb, var(--note-color, #5365d9) 72%, #ffffff);
+  cursor: grabbing;
+  will-change: left, width;
+}
+
+.note-block.is-resizing {
+  will-change: width;
+}
+
+.note-block.is-selected {
+  border-color: #aab5ff;
+  background: color-mix(in srgb, var(--note-color, #5365d9) 86%, #ffffff);
+}
+
+.note-block.is-pattern-selected {
+  border-color: #dbe0ff;
+  box-shadow: 0 0 0 1px rgba(219, 224, 255, 0.55);
+}
+
+.note-block.is-ghost {
+  border-color: color-mix(in srgb, var(--note-color, #5365d9) 42%, transparent);
+  background: color-mix(in srgb, var(--note-color, #5365d9) 28%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.note-block.is-all-track-note {
+  border-color: color-mix(in srgb, var(--note-color, #5365d9) 62%, transparent);
+  background: color-mix(in srgb, var(--note-color, #5365d9) 44%, transparent);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 8px;
+  background: rgba(255, 255, 255, 0.24);
+  cursor: ew-resize;
+}
+
+.resize-handle.resize-handle-start {
+  left: -3px;
+  right: auto;
+}
+

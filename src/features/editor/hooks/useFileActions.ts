@@ -9,24 +9,25 @@ import { exportMp3Project } from '../../../lib/audio/exportMp3'
 import { exportMidiProject } from '../../../lib/midi/exportMidi'
 import { importMidiProject } from '../../../lib/midi/importMidi'
 import type {
-  AudioClip,
   Project,
   Track,
 } from '../../../types/music'
 import {
-  MIN_DURATION_BEATS,
-  TRACK_COLORS,
-} from '../constants'
-import {
   createId,
   createInitialProject,
-  getTempoAtBeat,
   normalizeProject,
 } from '../helpers'
 import type {
   EditorTab,
   PatternClipboard,
 } from '../types'
+import {
+  blobToDataUrl,
+  createAudioClip,
+  createAudioTrack,
+  getAudioDurationFromDataUrl,
+  getAudioWaveform,
+} from '../utils/audioFileUtils'
 
 type UseFileActionsOptions = {
   audioFileInputRef: MutableRefObject<HTMLInputElement | null>
@@ -101,67 +102,20 @@ export function useFileActions({
     setFileMenuOpen(false)
   }
 
-  function blobToDataUrl(blob: Blob) {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onerror = () => reject(new Error('?뚯씪???쎌? 紐삵뻽?듬땲??'))
-      reader.onload = () => resolve(String(reader.result))
-      reader.readAsDataURL(blob)
-    })
-  }
-
-  function getAudioDurationFromDataUrl(dataUrl: string) {
-    return new Promise<number>((resolve) => {
-      const audio = new Audio()
-      audio.preload = 'metadata'
-      audio.onloadedmetadata = () => {
-        resolve(Number.isFinite(audio.duration) ? audio.duration : 1)
-      }
-      audio.onerror = () => resolve(1)
-      audio.src = dataUrl
-    })
-  }
-
-  async function getAudioWaveform(blob: Blob, bars = 96) {
-    try {
-      const arrayBuffer = await blob.arrayBuffer()
-      const context = new AudioContext()
-      const buffer = await context.decodeAudioData(arrayBuffer.slice(0))
-      const channel = buffer.getChannelData(0)
-      const samplesPerBar = Math.max(1, Math.floor(channel.length / bars))
-      const waveform = Array.from({ length: bars }, (_, barIndex) => {
-        const start = barIndex * samplesPerBar
-        const end = Math.min(channel.length, start + samplesPerBar)
-        let peak = 0
-        for (let index = start; index < end; index += 1) {
-          peak = Math.max(peak, Math.abs(channel[index]))
-        }
-        return Math.round(Math.min(1, peak) * 100) / 100
-      })
-      await context.close()
-      return waveform
-    } catch {
-      return Array.from({ length: bars }, (_, index) => 0.24 + Math.sin(index * 0.31) * 0.14)
-    }
-  }
-
   async function addAudioClipToTrack(trackId: string, blob: Blob, name: string, durationSeconds?: number, startBeatOverride?: number) {
     const dataUrl = await blobToDataUrl(blob)
     const resolvedDurationSeconds = durationSeconds ?? await getAudioDurationFromDataUrl(dataUrl)
     const startBeat = snapBeatToGrid(startBeatOverride ?? getCurrentPlaybackBeat())
-    const tempoAtStart = getTempoAtBeat(projectRef.current, startBeat, totalBeats)
-    const durationBeats = Math.max(MIN_DURATION_BEATS, resolvedDurationSeconds / (60 / tempoAtStart))
-    const clip: AudioClip = {
-      id: createId('audio'),
+    const clip = createAudioClip(
+      projectRef.current,
       trackId,
       name,
       dataUrl,
       startBeat,
-      durationBeats,
-      volume: 1,
-      pan: 0,
-      waveform: await getAudioWaveform(blob),
-    }
+      totalBeats,
+      resolvedDurationSeconds,
+      await getAudioWaveform(blob),
+    )
 
     setProject((current) => ({
       ...current,
@@ -171,36 +125,13 @@ export function useFileActions({
 
   async function addAudioFileAsTrack(file: File) {
     const trackId = createId('track')
-    const name = file.name.replace(/\.[^.]+$/, '') || '?ㅻ뵒???뚯씪'
+    const name = file.name.replace(/\.[^.]+$/, '') || '오디오 파일'
     const dataUrl = await blobToDataUrl(file)
     const resolvedDurationSeconds = await getAudioDurationFromDataUrl(dataUrl)
     const waveform = await getAudioWaveform(file)
     const startBeat = snapBeatToGrid(getCurrentPlaybackBeat())
-    const tempoAtStart = getTempoAtBeat(projectRef.current, startBeat, totalBeats)
-    const durationBeats = Math.max(MIN_DURATION_BEATS, resolvedDurationSeconds / (60 / tempoAtStart))
-    const nextTrack: Track = {
-      id: trackId,
-      name,
-      instrumentId: 'audio-track',
-      kind: 'audio',
-      volume: 0.95,
-      pan: 0,
-      mute: false,
-      solo: false,
-      channel: Math.min(16, projectRef.current.tracks.length + 1),
-      color: TRACK_COLORS[projectRef.current.tracks.length % TRACK_COLORS.length],
-    }
-    const clip: AudioClip = {
-      id: createId('audio'),
-      trackId,
-      name,
-      dataUrl,
-      startBeat,
-      durationBeats,
-      volume: 1,
-      pan: 0,
-      waveform,
-    }
+    const nextTrack: Track = createAudioTrack(projectRef.current, trackId, name)
+    const clip = createAudioClip(projectRef.current, trackId, name, dataUrl, startBeat, totalBeats, resolvedDurationSeconds, waveform)
 
     setProject((current) => ({
       ...current,
@@ -240,7 +171,7 @@ export function useFileActions({
 
   function saveMidiFile() {
     if ((project.audioClips ?? []).length > 0) {
-      alert('?뱀쓬?대굹 ?ㅻ뵒???뚯씪???ㅼ뼱媛??꾨줈?앺듃??MIDI濡???ν븷 ???놁뒿?덈떎. MP3 ??μ쓣 ?ъ슜??二쇱꽭??')
+      alert('녹음이나 오디오 파일이 들어간 프로젝트는 MIDI로 저장할 수 없습니다. MP3 저장을 사용해 주세요.')
       setFileMenuOpen(false)
       return
     }
@@ -270,7 +201,7 @@ export function useFileActions({
       link.click()
       URL.revokeObjectURL(url)
     } catch {
-      alert('?뚯븙 ?뚯씪??留뚮뱾吏 紐삵뻽?듬땲?? ?뚰몴媛 ?덈Т 留롪굅??釉뚮씪?곗? ?ㅻ뵒??留뚮뱾湲곌? ?ㅽ뙣?덉쓣 ???덉뒿?덈떎.')
+      alert('음악 파일을 만들지 못했습니다. 음표가 너무 많거나 브라우저 오디오 만들기가 실패했을 수 있습니다.')
     } finally {
       setIsExportingMp3(false)
     }
@@ -297,7 +228,7 @@ export function useFileActions({
           setProject(nextProject)
         }
       } catch {
-        alert('?뚯씪??遺덈윭?ㅼ? 紐삵뻽?듬땲?? 鍮꾧린?덈?吏??꾨줈?앺듃 ?뚯씪 ?먮뒗 誘몃뵒 ?뚯씪?몄? ?뺤씤??二쇱꽭??')
+        alert('파일을 불러오지 못했습니다. BeginnerMusic 프로젝트 파일 또는 MIDI 파일인지 확인해 주세요.')
       }
     }
 

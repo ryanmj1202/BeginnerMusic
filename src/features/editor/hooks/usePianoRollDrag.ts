@@ -109,6 +109,20 @@ export function usePianoRollDrag({
     drag.lastStep = step
   }
 
+  function getNextDraggedPitch(drag: NoteDrag, cell: RollCell) {
+    const lastRowIndex = rollPitches.indexOf(drag.lastPitch ?? cell.pitch)
+    if (lastRowIndex < 0) return cell.pitch
+
+    const rowDelta = cell.rowIndex - lastRowIndex
+    if (rowDelta === 0) return drag.lastPitch ?? cell.pitch
+
+    const nextRowIndex = Math.max(
+      0,
+      Math.min(rollPitches.length - 1, lastRowIndex + Math.sign(rowDelta)),
+    )
+    return rollPitches[nextRowIndex] ?? cell.pitch
+  }
+
   function getOutsideEdgeScrollDelta(outsidePixels: number) {
     if (outsidePixels <= 0) return 0
     const normalized = Math.min(1, outsidePixels / NOTE_DRAG_SCROLL_SENSITIVITY_PX)
@@ -162,8 +176,9 @@ export function usePianoRollDrag({
   function moveDraggedNoteFromPointer(clientX: number, clientY: number) {
     applyNoteDragAutoScroll(clientX, clientY)
     const cell = getCellFromPointer(clientX, clientY)
-    if (!cell || !noteDragRef.current?.active) return
-    moveDraggedNoteToCell(cell.pitch, cell.step)
+    const drag = noteDragRef.current
+    if (!cell || !drag?.active) return
+    moveDraggedNoteToCell(getNextDraggedPitch(drag, cell), cell.step)
   }
 
   function moveNoteGroupToCell(drag: NoteDrag, pitch: number, step: number) {

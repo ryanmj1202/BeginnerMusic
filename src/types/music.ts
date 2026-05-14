@@ -25,6 +25,8 @@ export interface Track {
   solo: boolean
   channel?: number
   color?: string
+  pianoRollVisible?: boolean
+  pianoRollOpacity?: number
 }
 
 export interface AudioClip {

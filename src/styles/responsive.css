@@ -1,0 +1,82 @@
+﻿@media (max-width: 980px) {
+  .top-bar {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .main-menu,
+  .top-actions {
+    overflow-x: auto;
+  }
+
+  .editor-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(560px, 1fr) 220px;
+    grid-template-areas:
+      "tracks"
+      "roll"
+      "details";
+  }
+
+  .editor-shell.is-track-panel-closed {
+    grid-template-rows: minmax(560px, 1fr) 220px;
+    grid-template-areas:
+      "roll"
+      "details";
+  }
+
+  .track-panel {
+    border-right: 0;
+    border-bottom: 1px solid #12151b;
+  }
+
+  .track-list {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .piano-roll {
+    height: 560px;
+  }
+
+  .terminology-strip {
+    position: static;
+    grid-template-columns: 1fr;
+    margin: 0.55rem 0.7rem 0;
+  }
+
+  .detail-header {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-tabs {
+    overflow-x: auto;
+    padding-left: 0.5rem;
+  }
+
+  .detail-toggle-button {
+    border-left: 0;
+    border-top: 1px solid #303844;
+    min-height: 30px;
+  }
+
+  .tempo-panel {
+    position: static;
+    margin: 0.5rem 0.7rem 0;
+  }
+
+  .note-control-panel {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    padding: 0.7rem;
+  }
+
+  .note-control-panel label {
+    grid-template-columns: 82px minmax(100px, 1fr) 42px;
+  }
+
+  .transport-bar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    padding: 0.6rem;
+  }
+}

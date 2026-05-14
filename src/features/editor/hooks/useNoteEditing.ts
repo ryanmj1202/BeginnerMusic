@@ -1,5 +1,5 @@
 import { MIN_DURATION_BEATS } from '../constants'
-import { getGroupedPitchStep, nearlyEqual, prunePatternRepeatGroups } from '../helpers'
+import { nearlyEqual, prunePatternRepeatGroups } from '../helpers'
 import {
   clampNoteControlValue,
   getNoteControlValue,
@@ -73,8 +73,7 @@ export function useNoteEditing({
   function transposeSelectedNotes(direction: number) {
     if (editableSelectedNotes.length === 0) return
 
-    const pitchStep = getGroupedPitchStep(editableSelectedNotes)
-    const pitchDelta = direction * pitchStep
+    const pitchDelta = direction
     const targetIds = new Set(editableSelectedNotes.map((note: any) => note.id))
     const targetNotes = allTrackNotes.filter((note: any) => targetIds.has(note.id))
     if (targetNotes.length === 0) return

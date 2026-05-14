@@ -5,9 +5,7 @@ import type {
 import { useEffect, useMemo, useState } from 'react'
 import { isDrumInstrument } from '../../../lib/audio/toneTransport'
 import {
-  FLUID_SOUNDFONT_BASE_URL,
-  ORCHESTRAL_SOUNDFONT_BASE_URL,
-  createOnlineSoundFontInstrumentId,
+  createOnlineWebAudioFontInstrumentId,
   getInstrumentImage,
 } from '../../../lib/midi/generalMidi'
 import type {
@@ -24,31 +22,55 @@ type InstrumentOption = (typeof INSTRUMENT_OPTIONS)[number]
 type CloudInstrument = {
   family: string
   id: InstrumentId
+  imageInstrumentId: InstrumentId
   label: string
   source: string
 }
-type GitHubContentItem = {
-  name: string
-  type: string
-}
-type CloudSource = {
-  apiUrl: string
-  baseUrl: string
-  label: string
+const WEBAUDIOFONT_CATALOG_URL = 'https://surikov.github.io/webaudiofontdata/sound/'
+const WEBAUDIOFONT_SCRIPT_BASE_URL = 'https://surikov.github.io/webaudiofontdata/sound/'
+
+const RECOMMENDED_CLOUD_NAMES = new Set([
+  '0220_Aspirin_sf2_file.html',
+  '0220_JCLive_sf2_file.html',
+  '0250_Acoustic_Guitar_sf2_file.html',
+  '0270_Gibson_Les_Paul_sf2_file.html',
+  '0280_LesPaul_sf2_file.html',
+  '0400_Aspirin_sf2_file.html',
+  '0560_JCLive_sf2_file.html',
+  '0880_Chaos_sf2_file.html',
+])
+
+function formatCloudSourceName(fileName: string) {
+  return fileName
+    .replace(/^\d+_/, '')
+    .replace(/_sf2_file\.html$|_sf2\.html$|\.html$/g, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-const CLOUD_SOURCES: CloudSource[] = [
-  {
-    apiUrl: 'https://api.github.com/repos/gleitz/midi-js-soundfonts/contents/FluidR3_GM',
-    baseUrl: FLUID_SOUNDFONT_BASE_URL,
-    label: 'FluidR3 GM',
-  },
-  {
-    apiUrl: 'https://api.github.com/repos/gleitz/midi-js-soundfonts/contents/MusyngKite',
-    baseUrl: ORCHESTRAL_SOUNDFONT_BASE_URL,
-    label: 'MusyngKite',
-  },
-]
+function getWebAudioFontVariableName(fileName: string) {
+  const baseName = fileName.replace(/\.html$/, '')
+  return `_${baseName.replace(/[^A-Za-z0-9_]/g, '_')}`
+}
+
+function createCloudInstrument(fileName: string): CloudInstrument | null {
+  const match = fileName.match(/^(\d{3})\d*_/)
+  if (!match) return null
+  const program = Number(match[1])
+  const localInstrument = INSTRUMENT_OPTIONS.find((option) => option.id === `gm-${program}`)
+  if (!localInstrument) return null
+  const source = formatCloudSourceName(fileName)
+  const label = `${source} ${localInstrument.label}`
+  const scriptUrl = `${WEBAUDIOFONT_SCRIPT_BASE_URL}${fileName.replace(/\.html$/, '.js')}`
+
+  return {
+    family: localInstrument.family,
+    id: createOnlineWebAudioFontInstrumentId(scriptUrl, getWebAudioFontVariableName(fileName), label, program),
+    imageInstrumentId: localInstrument.id,
+    label,
+    source: fileName,
+  }
+}
 
 type InstrumentDialogProps = {
   categoryInstruments: InstrumentOption[]
@@ -80,10 +102,16 @@ export function InstrumentDialog({
   const [onlineInstruments, setOnlineInstruments] = useState<CloudInstrument[]>([])
   const cloudInstruments = useMemo(() => {
     const query = cloudQuery.trim().toLowerCase()
-    return onlineInstruments.filter((instrument) => {
+    const filteredInstruments = onlineInstruments.filter((instrument) => {
       if (!query) return true
       return `${instrument.label} ${instrument.family} ${instrument.source}`.toLowerCase().includes(query)
     })
+    if (query) return filteredInstruments
+
+    const recommendedInstruments = filteredInstruments.filter((instrument) => {
+      return RECOMMENDED_CLOUD_NAMES.has(instrument.source)
+    })
+    return recommendedInstruments.length > 0 ? recommendedInstruments : filteredInstruments.slice(0, 24)
   }, [cloudQuery, onlineInstruments])
 
   useEffect(() => {
@@ -104,40 +132,34 @@ export function InstrumentDialog({
   }, [])
 
   useEffect(() => {
-    if (!cloudOpen || onlineInstruments.length > 0 || cloudLoading || !cloudAvailable) return
+    if (!cloudOpen || onlineInstruments.length > 0 || !cloudAvailable) return
 
     let cancelled = false
     setCloudLoading(true)
-    Promise.all(
-      CLOUD_SOURCES.map(async (source) => {
-        const response = await fetch(source.apiUrl)
-        if (!response.ok) throw new Error(`Cloud source failed: ${response.status}`)
-        const items = await response.json() as GitHubContentItem[]
-        return items
-          .filter((item) => item.type === 'dir' && item.name.endsWith('-mp3'))
-          .map((item) => {
-            const soundFontName = item.name.replace(/-mp3$/, '')
-            return {
-              family: 'Cloud',
-              id: createOnlineSoundFontInstrumentId(source.baseUrl, soundFontName),
-              label: soundFontName
-                .split('_')
-                .filter(Boolean)
-                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' '),
-              source: source.label,
-            }
-          })
-      }),
-    )
-      .then((groups) => {
+    const abortController = new AbortController()
+    const timeoutId = window.setTimeout(() => abortController.abort(), 7000)
+    fetch(WEBAUDIOFONT_CATALOG_URL, { signal: abortController.signal })
+      .then(async (response) => {
+        window.clearTimeout(timeoutId)
+        if (!response.ok) throw new Error(`Cloud catalog failed: ${response.status}`)
+        const html = await response.text()
+        const document = new DOMParser().parseFromString(html, 'text/html')
+        return Array.from(document.querySelectorAll('a'))
+          .map((link) => link.getAttribute('href') ?? link.textContent ?? '')
+          .filter((fileName) => /^\d+_.+\.html$/.test(fileName))
+          .map(createCloudInstrument)
+          .filter((instrument): instrument is CloudInstrument => Boolean(instrument))
+      })
+      .then((instruments) => {
         if (cancelled) return
-        setOnlineInstruments(groups.flat().sort((left, right) => left.label.localeCompare(right.label)))
+        if (instruments.length === 0) throw new Error('Cloud sources unavailable')
+        setOnlineInstruments(instruments.sort((left, right) => left.label.localeCompare(right.label)))
       })
       .catch(() => {
         if (cancelled) return
         setCloudAvailable(false)
         setCloudOpen(false)
+        window.alert('인터넷 연결이 없어 악기 모음을 불러올 수 없습니다.')
       })
       .finally(() => {
         if (!cancelled) setCloudLoading(false)
@@ -145,8 +167,10 @@ export function InstrumentDialog({
 
     return () => {
       cancelled = true
+      abortController.abort()
+      window.clearTimeout(timeoutId)
     }
-  }, [cloudAvailable, cloudLoading, cloudOpen, onlineInstruments.length])
+  }, [cloudAvailable, cloudOpen, onlineInstruments.length])
 
   if (!instrumentDialogTrack) return null
 
@@ -216,6 +240,9 @@ export function InstrumentDialog({
               {cloudLoading ? (
                 <span className="instrument-cloud-status">온라인 악기 목록 불러오는 중</span>
               ) : null}
+              {!cloudLoading && cloudInstruments.length === 0 ? (
+                <span className="instrument-cloud-status">검색 결과가 없습니다</span>
+              ) : null}
               {cloudInstruments.map((instrument) => (
                 <button
                   type="button"
@@ -225,9 +252,8 @@ export function InstrumentDialog({
                     previewInstrumentChoice(instrument.id)
                   }}
                 >
-                  <img alt="" draggable={false} src={getInstrumentImage(instrument.id)} />
+                  <img alt="" draggable={false} src={getInstrumentImage(instrument.imageInstrumentId)} />
                   <span>{instrument.label}</span>
-                  <em>{instrument.source}</em>
                 </button>
               ))}
             </div>
@@ -256,8 +282,13 @@ export function InstrumentDialog({
           <div className="instrument-dialog-actions">
             <button
               type="button"
-              disabled={!cloudAvailable}              onPointerDown={() => {
-                if (cloudAvailable) setCloudOpen(true)
+              onPointerDown={() => {
+                if (cloudAvailable) {
+                  setCloudOpen(true)
+                  return
+                }
+
+                window.alert('인터넷 연결이 없어 악기 모음을 불러올 수 없습니다.')
               }}
             >
               악기 모음

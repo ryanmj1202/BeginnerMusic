@@ -1,0 +1,39 @@
+﻿.editor-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--track-panel-width, 240px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--detail-panel-height, 180px);
+  grid-template-areas:
+    "tracks roll"
+    "details details";
+  height: calc(100vh - 40px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-shell.is-track-panel-closed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-content: center;
+  gap: 0.45rem;
+  background: rgba(15, 18, 24, 0.72);
+  color: #ffffff;
+  text-align: center;
+  cursor: wait;
+}
+
+.busy-overlay strong {
+  font-size: 1.15rem;
+}
+
+.busy-overlay span {
+  color: #aeb8c8;
+  font-size: 0.86rem;
+}
+

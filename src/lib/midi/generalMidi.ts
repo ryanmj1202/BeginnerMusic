@@ -3,6 +3,7 @@ import type { InstrumentId } from '../../types/music'
 export const FLUID_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/'
 export const ORCHESTRAL_SOUNDFONT_BASE_URL = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/'
 const ONLINE_SOUNDFONT_PREFIX = 'online-sf:'
+const ONLINE_WEBAUDIOFONT_PREFIX = 'online-waf:'
 
 const GM_NAMES = [
   'Acoustic Grand Piano',
@@ -319,6 +320,31 @@ export function isOnlineSoundFontInstrument(instrumentId: InstrumentId) {
   return instrumentId.startsWith(ONLINE_SOUNDFONT_PREFIX)
 }
 
+export function createOnlineWebAudioFontInstrumentId(
+  scriptUrl: string,
+  variableName: string,
+  label: string,
+  program: number,
+) {
+  return `${ONLINE_WEBAUDIOFONT_PREFIX}${encodeURIComponent(scriptUrl)}:${encodeURIComponent(variableName)}:${encodeURIComponent(label)}:${program}`
+}
+
+export function parseOnlineWebAudioFontInstrumentId(instrumentId: InstrumentId) {
+  if (!instrumentId.startsWith(ONLINE_WEBAUDIOFONT_PREFIX)) return null
+  const [scriptUrl, variableName, label, program] = instrumentId
+    .slice(ONLINE_WEBAUDIOFONT_PREFIX.length)
+    .split(':')
+  const programNumber = Number(program)
+  if (!scriptUrl || !variableName || !label || !Number.isInteger(programNumber)) return null
+
+  return {
+    label: decodeURIComponent(label),
+    program: Math.max(0, Math.min(127, programNumber)),
+    scriptUrl: decodeURIComponent(scriptUrl),
+    variableName: decodeURIComponent(variableName),
+  }
+}
+
 export function parseOnlineSoundFontInstrumentId(instrumentId: InstrumentId) {
   if (!isOnlineSoundFontInstrument(instrumentId)) return null
   const payload = instrumentId.slice(ONLINE_SOUNDFONT_PREFIX.length)
@@ -365,6 +391,8 @@ export function getInstrumentLabel(instrumentId: InstrumentId) {
   if (instrumentId === 'audio-track') return '오디오 파일'
   if (instrumentId === 'drums') return '파워 드럼 키트'
   if (instrumentId === 'standard-drums') return '스탠다드 드럼 키트'
+  const webAudioFont = parseOnlineWebAudioFontInstrumentId(instrumentId)
+  if (webAudioFont) return webAudioFont.label
   const onlineSoundFont = parseOnlineSoundFontInstrumentId(instrumentId)
   if (onlineSoundFont) return formatSoundFontLabel(onlineSoundFont.soundFontName)
   const program = getProgramFromInstrumentId(instrumentId)
@@ -388,7 +416,7 @@ export function getSoundFontInstrumentName(instrumentId: InstrumentId) {
 }
 
 export function getInstrumentImage(instrumentId: InstrumentId) {
-  const program = getProgramFromInstrumentId(instrumentId)
+  const program = parseOnlineWebAudioFontInstrumentId(instrumentId)?.program ?? getProgramFromInstrumentId(instrumentId)
   if (instrumentId === 'audio-track') return '/instrument-icons/fx.svg'
   if (instrumentId === 'drums' || instrumentId === 'standard-drums') return '/instrument-icons/drums.svg'
   if (program === null) return '/instrument-icons/synth.svg'

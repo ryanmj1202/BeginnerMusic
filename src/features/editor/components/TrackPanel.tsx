@@ -24,6 +24,7 @@ type TrackPanelProps = {
   applyAutoMix: () => void
   allTrackMelodyMode: boolean
   isRecordingVoice: boolean
+  onClose: () => void
   openAudioUpload: () => void
   openInstrumentDialog: (track: Track) => void
   openTrackContextMenu: (trackId: string, event: ReactMouseEvent<HTMLElement>) => void
@@ -42,6 +43,7 @@ export function TrackPanel({
   addTrack,
   applyAutoMix,
   allTrackMelodyMode,
+  onClose,
   openInstrumentDialog,
   openTrackContextMenu,
   openTrackPanelContextMenu,
@@ -62,9 +64,8 @@ export function TrackPanel({
   return (
     <aside className="track-panel" aria-label="악기 목록" onContextMenu={openTrackPanelContextMenu}>
       <div className="track-toolbar">
-        <button type="button" className="back-button">‹</button>
+        <button type="button" className="back-button" aria-label="악기 목록 닫기" onPointerDown={onClose}>‹</button>
         <strong>{selectedTrackName}</strong>
-        <button type="button" className="menu-button">☰</button>
       </div>
 
       <label className="track-mode-toggle">
@@ -83,6 +84,7 @@ export function TrackPanel({
             className={track.id === project.selectedTrackId ? 'track-item is-selected' : 'track-item'}
             onPointerDown={(event) => {
               if (event.button !== 0) return
+              if (event.target instanceof Element && event.target.closest('button, input, label')) return
               selectTrack(track.id)
             }}
             onContextMenu={(event) => openTrackContextMenu(track.id, event)}
@@ -106,6 +108,15 @@ export function TrackPanel({
               <strong>악기 {index + 1}</strong>
               <span>{getInstrumentLabel(track.instrumentId)}</span>
             </div>
+
+            <label className="track-visibility-toggle" onPointerDownCapture={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={track.pianoRollVisible ?? true}
+                onChange={(event) => updateTrack(track.id, { pianoRollVisible: event.currentTarget.checked })}
+              />
+              <span>편집창 표시</span>
+            </label>
 
             <label className="track-volume-control" onPointerDown={(event) => event.stopPropagation()}>
               <span>음량</span>
@@ -133,6 +144,22 @@ export function TrackPanel({
                 onChange={(event) => updateTrack(track.id, { pan: Number(event.target.value) })}
               />
               <em>{Math.round((track.pan ?? 0) * 100)}</em>
+            </label>
+
+            <label className="track-volume-control" onPointerDown={(event) => event.stopPropagation()}>
+              <span>투명도</span>
+              <input
+                aria-label={`${track.name} 편집창 투명도`}
+                type="range"
+                min="0.15"
+                max="1"
+                step="0.05"
+                value={track.pianoRollOpacity ?? 1}
+                onPointerDownCapture={(event) => event.stopPropagation()}
+                onInput={(event) => updateTrack(track.id, { pianoRollOpacity: Number(event.currentTarget.value) })}
+                onChange={(event) => updateTrack(track.id, { pianoRollOpacity: Number(event.target.value) })}
+              />
+              <em>{Math.round((track.pianoRollOpacity ?? 1) * 100)}</em>
             </label>
 
             <div className="track-quick-actions" onPointerDown={(event) => event.stopPropagation()}>

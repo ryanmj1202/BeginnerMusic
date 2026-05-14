@@ -35,7 +35,7 @@ type EditorLayoutProps = {
   toolMode: string
   topMenuProps: ComponentProps<typeof TopMenu>
   instrumentDialogProps: ComponentProps<typeof InstrumentDialog>
-  trackPanelProps: ComponentProps<typeof TrackPanel>
+  trackPanelProps: Omit<ComponentProps<typeof TrackPanel>, 'onClose'>
   pianoRollProps: ComponentProps<typeof PianoRollView>
   arrangeViewProps: ComponentProps<typeof ArrangeView>
   autoMixPanelProps: ComponentProps<typeof AutoMixPanel>
@@ -77,6 +77,7 @@ export function EditorLayout({
   trackPanelProps,
   tracksCount,
 }: EditorLayoutProps) {
+  const [trackPanelOpen, setTrackPanelOpen] = useState(true)
   const [trackPanelWidth, setTrackPanelWidth] = useState(240)
   const [detailPanelHeight, setDetailPanelHeight] = useState(180)
   const detailPanelLayoutHeight = detailPanelProps.detailPanelOpen ? detailPanelHeight : 88
@@ -122,7 +123,7 @@ export function EditorLayout({
 
   const editorShellStyle = {
     '--detail-panel-height': `${detailPanelLayoutHeight}px`,
-    '--track-panel-width': `${trackPanelWidth}px`,
+    '--track-panel-width': trackPanelOpen ? `${trackPanelWidth}px` : '0px',
   } as CSSProperties
 
   return (
@@ -166,15 +167,26 @@ export function EditorLayout({
           <button type="button" disabled={selectedPatternNoteCount === 0} onPointerDown={() => { contextMenuActions.deleteSelectedNote(); closePianoRollContextMenu() }}>삭제</button>
         </div>
       ) : null}
-      <main className="editor-shell" style={editorShellStyle}>
-        <TrackPanel {...trackPanelProps} />
-        <div
-          className="panel-resizer panel-resizer-vertical"
-          role="separator"
-          aria-label="악기 목록 크기 조절"
-          aria-orientation="vertical"
-          onPointerDown={beginTrackPanelResize}
-        />
+      <main className={trackPanelOpen ? 'editor-shell' : 'editor-shell is-track-panel-closed'} style={editorShellStyle}>
+        {trackPanelOpen ? <TrackPanel {...trackPanelProps} onClose={() => setTrackPanelOpen(false)} /> : null}
+        {trackPanelOpen ? (
+          <div
+            className="panel-resizer panel-resizer-vertical"
+            role="separator"
+            aria-label="악기 목록 크기 조절"
+            aria-orientation="vertical"
+            onPointerDown={beginTrackPanelResize}
+          />
+        ) : (
+          <button
+            type="button"
+            className="track-panel-open-button"
+            aria-label="악기 목록 열기"
+            onPointerDown={() => setTrackPanelOpen(true)}
+          >
+            ›
+          </button>
+        )}
         <section className="piano-roll-area" aria-label="음악 편집창">
           {activeEditorTab === 'piano-roll' ? (
             <PianoRollView {...pianoRollProps} />
@@ -188,7 +200,7 @@ export function EditorLayout({
         <div
           className="panel-resizer panel-resizer-horizontal"
           role="separator"
-          aria-label="?섎떒 李??믪씠 議곗젅"
+          aria-label="하단 창 높이 조절"
           aria-orientation="horizontal"
           onPointerDown={beginDetailPanelResize}
         />

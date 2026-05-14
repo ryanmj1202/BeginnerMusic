@@ -1,9 +1,4 @@
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from 'react'
-import * as Tone from 'tone'
+﻿import * as Tone from 'tone'
 import { expandProjectForArrangement } from '../../../lib/arrangement/trackArrangement'
 import {
   createInstrument,
@@ -13,7 +8,6 @@ import {
   stopAllPreviewAudio,
   stopPreviewNoteImmediately,
   waitForInstrumentReady,
-  type HeldPreview,
 } from '../../../lib/audio/toneTransport'
 import type {
   Note,
@@ -28,49 +22,12 @@ import {
   getBeatAtSecondsFromTimeline,
   getSecondsAtBeatFromTimeline,
   getSecondsBetweenBeatsFromTimeline,
-  type TempoTimelineSegment,
 } from '../helpers'
 import type {
   ActivePlaybackTrack,
-  KeyboardRecordingNote,
-  PlaybackInstrument,
 } from '../types'
-
-type ActiveAudioNode = {
-  gain: GainNode
-  panner: StereoPannerNode
-  source: AudioScheduledSourceNode
-}
-
-type UsePlaybackOptions = {
-  activeAudioElementsRef: MutableRefObject<HTMLAudioElement[]>
-  activeAudioNodesRef: MutableRefObject<ActiveAudioNode[]>
-  activeInstrumentsRef: MutableRefObject<PlaybackInstrument[]>
-  activeIntervalsRef: MutableRefObject<number[]>
-  activePlaybackTracksRef: MutableRefObject<ActivePlaybackTrack[]>
-  activeTimeoutsRef: MutableRefObject<number[]>
-  heldPreviewRef: MutableRefObject<HeldPreview | null>
-  isPlaying: boolean
-  keyboardInputEnabled: boolean
-  keyboardRecordingRef: MutableRefObject<Map<string, KeyboardRecordingNote>>
-  keyPreviewRef: MutableRefObject<{ active: boolean }>
-  lastPlayheadAutoScrollAtRef: MutableRefObject<number>
-  pianoRollRef: MutableRefObject<HTMLDivElement | null>
-  playbackBeatRef: MutableRefObject<number>
-  playbackPressedPitchCountsRef: MutableRefObject<Map<number, number>>
-  playbackSessionRef: MutableRefObject<number>
-  playbackStartBeatRef: MutableRefObject<number>
-  playbackStartMsRef: MutableRefObject<number>
-  playbackStartSecondsRef: MutableRefObject<number>
-  playbackTempoTimelineRef: MutableRefObject<TempoTimelineSegment[]>
-  projectRef: MutableRefObject<Project>
-  setIsPlaying: Dispatch<SetStateAction<boolean>>
-  setPlaybackBeat: Dispatch<SetStateAction<number>>
-  setPlaybackPosition: (beat: number) => void
-  setPressedPitch: Dispatch<SetStateAction<number | null>>
-  totalBeats: number
-  totalBeatsRef: MutableRefObject<number>
-}
+import { getMinimumPlaybackDrumSeconds } from '../utils/playbackDuration'
+import type { UsePlaybackOptions } from './playbackTypes'
 
 export function usePlayback({
   activeAudioElementsRef,
@@ -187,19 +144,6 @@ export function usePlayback({
     playbackStartSecondsRef.current = 0
     lastPlayheadAutoScrollAtRef.current = 0
     setIsPlaying(false)
-  }
-
-  function getMinimumPlaybackDrumSeconds(pitch: number, durationSeconds: number) {
-    if (pitch === 35 || pitch === 36) return Math.max(durationSeconds, 0.32)
-    if (pitch === 38 || pitch === 39 || pitch === 40) return Math.max(durationSeconds, 0.42)
-    if (pitch === 42 || pitch === 44) return Math.max(durationSeconds, 0.18)
-    if (pitch === 46) return Math.max(durationSeconds, 0.55)
-    if (pitch >= 41 && pitch <= 50) return Math.max(durationSeconds, 0.44)
-    if (pitch === 49 || pitch === 51 || pitch === 52 || pitch === 55 || pitch === 57 || pitch === 59) {
-      return Math.max(durationSeconds, 0.9)
-    }
-    if (pitch >= 65 && pitch <= 81) return Math.max(durationSeconds, 0.36)
-    return Math.max(durationSeconds, 0.28)
   }
 
   function schedulePlaybackNote(

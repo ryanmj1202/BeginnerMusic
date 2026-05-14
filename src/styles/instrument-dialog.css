@@ -1,0 +1,263 @@
+﻿.instrument-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 12, 16, 0.38);
+}
+
+.instrument-dialog {
+  width: min(512px, calc(100vw - 32px));
+  border: 1px solid #2b303c;
+  border-radius: 8px;
+  background: #242833;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+  color: #e8eef9;
+  padding: 16px;
+}
+
+.instrument-picker-grid {
+  display: grid;
+  grid-template-columns: 205px minmax(0, 1fr);
+  border: 1px solid #343b4a;
+  background: #1a1d25;
+}
+
+.instrument-column {
+  min-width: 0;
+  border-right: 1px solid #343b4a;
+}
+
+.instrument-column:last-child {
+  border-right: 0;
+}
+
+.instrument-column-title {
+  display: block;
+  height: 28px;
+  padding: 0 0.85rem;
+  color: #8d99aa;
+  font-size: 0.78rem;
+  line-height: 28px;
+}
+
+.instrument-category-list,
+.instrument-choice-list {
+  height: 324px;
+  overflow: auto;
+}
+
+.instrument-category-list button,
+.instrument-choice-list button {
+  display: grid;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f4f7fc;
+  cursor: pointer;
+  padding: 0 0.9rem;
+  text-align: left;
+}
+
+.instrument-category-list button {
+  gap: 0.5rem;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.instrument-choice-list button {
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 0.55rem;
+  min-height: 38px;
+}
+
+.instrument-category-list img,
+.instrument-choice-list img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.instrument-choice-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-category-list button:hover,
+.instrument-choice-list button:hover {
+  background: #2b3140;
+}
+
+.instrument-category-list button.is-active,
+.instrument-choice-list button.is-active {
+  background: #4256de;
+  color: #ffffff;
+}
+
+.instrument-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 18px;
+}
+
+.rhythm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #8d99aa;
+  font-size: 0.86rem;
+}
+
+.rhythm-toggle input {
+  width: 24px;
+  height: 24px;
+  accent-color: #4256de;
+}
+
+.instrument-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.instrument-dialog-actions button {
+  min-width: 66px;
+  height: 32px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.instrument-dialog-actions button:hover {
+  background: #303644;
+}
+
+.instrument-dialog-actions button:disabled {
+  color: #6f7888;
+  cursor: not-allowed;
+}
+
+.instrument-dialog-actions button:disabled:hover {
+  background: transparent;
+}
+
+.instrument-dialog-actions .primary-action {
+  background: #4256de;
+}
+
+.instrument-cloud-window {
+  margin-top: 12px;
+  border: 1px solid #343b4a;
+  background: #1a1d25;
+}
+
+.instrument-cloud-window header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid #343b4a;
+}
+
+.instrument-cloud-window header button {
+  border: 0;
+  background: transparent;
+  color: #b8c4d8;
+  cursor: pointer;
+}
+
+.instrument-cloud-window input {
+  width: calc(100% - 1rem);
+  height: 32px;
+  margin: 0.5rem;
+  border: 1px solid #394154;
+  border-radius: 4px;
+  background: #242833;
+  color: #f4f7fc;
+  padding: 0 0.65rem;
+}
+
+.instrument-cloud-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 196px;
+  overflow: auto;
+}
+
+.instrument-cloud-status {
+  grid-column: 1 / -1;
+  min-height: 38px;
+  color: #8d99aa;
+  padding: 0.7rem 0.75rem;
+}
+
+.instrument-cloud-list button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 38px;
+  border: 0;
+  background: transparent;
+  color: #f4f7fc;
+  cursor: pointer;
+  padding: 0 0.75rem;
+  text-align: left;
+}
+
+.instrument-cloud-list button:hover,
+.instrument-cloud-list button.is-active {
+  background: #2f3a73;
+}
+
+.instrument-cloud-list img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.instrument-cloud-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-cloud-list em {
+  color: #8d99aa;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.add-track-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: calc(100% - 1rem);
+  margin: 0.8rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9ba7b8;
+  padding: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.add-track-button:hover {
+  background: #282d39;
+  color: #ffffff;
+}
+

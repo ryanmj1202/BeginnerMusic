@@ -1,0 +1,404 @@
+﻿.track-panel {
+  grid-area: tracks;
+  display: grid;
+  grid-template-rows: 58px auto minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid #12151b;
+  background: #222630;
+  overflow: hidden;
+}
+
+.panel-resizer {
+  position: absolute;
+  z-index: 12;
+  background: rgba(83, 101, 217, 0.2);
+  transition: background 0.15s ease;
+}
+
+.panel-resizer:hover {
+  background: rgba(106, 120, 240, 0.5);
+}
+
+.panel-resizer-vertical {
+  top: 0;
+  bottom: var(--detail-panel-height, 180px);
+  left: calc(var(--track-panel-width, 240px) - 3px);
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.panel-resizer-horizontal {
+  left: 0;
+  right: 0;
+  top: calc(100% - var(--detail-panel-height, 180px) - 3px);
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.track-toolbar {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  align-items: center;
+  gap: 0.35rem;
+  height: 58px;
+  padding: 0 0.8rem;
+}
+
+.track-toolbar strong {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.track-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.8rem 0.6rem;
+  color: #cdd6e4;
+  font-size: 0.82rem;
+}
+
+.track-mode-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #4256de;
+}
+
+.back-button,
+.menu-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: #171b23;
+  color: #c8d1df;
+  font-size: 1.1rem;
+}
+
+.track-panel-open-button {
+  position: absolute;
+  top: 58px;
+  left: 8px;
+  z-index: 18;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: #171b23;
+  color: #c8d1df;
+  font-size: 1.1rem;
+}
+
+.track-list {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  min-height: 0;
+  max-height: 100%;
+  padding: 0 0.5rem 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #4c5870 #222630;
+  scrollbar-width: thin;
+}
+
+.track-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto auto;
+  column-gap: 0.72rem;
+  row-gap: 0.62rem;
+  min-height: 260px;
+  padding: 0.9rem 0.65rem;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.track-item:hover {
+  background: #282d39;
+}
+
+.track-item.is-selected {
+  border-color: #353b49;
+  border-left-color: var(--track-color, #5365d9);
+  background: #2a2f3b;
+}
+
+.instrument-image {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: #313743;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--track-color, #5365d9) 55%, transparent);
+  color: #e8b34d;
+  cursor: pointer;
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.instrument-image img {
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.track-context-menu {
+  position: fixed;
+  z-index: 70;
+  display: grid;
+  min-width: 170px;
+  border: 1px solid #343b49;
+  border-radius: 4px;
+  background: #2a2f3b;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.track-context-menu button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f1f5fb;
+  cursor: pointer;
+  padding: 0.72rem 0.9rem;
+  text-align: left;
+}
+
+.track-context-menu button:hover {
+  background: #384052;
+}
+
+.track-context-menu button:disabled {
+  color: #7f8b9d;
+  cursor: not-allowed;
+}
+
+.track-copy {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  padding-left: 0;
+}
+
+.track-copy strong {
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.track-copy span {
+  min-width: 0;
+  overflow: hidden;
+  color: #8f9bad;
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-mix-readout {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.track-volume-meter,
+.report-meter {
+  position: relative;
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #11151c;
+}
+
+.track-volume-meter span,
+.report-meter span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #47b08f, #5365d9);
+}
+
+.track-mix-readout small {
+  overflow: hidden;
+  color: #7f8b9d;
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-volume-control {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 52px minmax(90px, 1fr) 32px;
+  align-items: center;
+  gap: 0.4rem;
+  color: #a7b2c3;
+  cursor: default;
+  font-size: 0.66rem;
+}
+
+.track-visibility-toggle {
+  grid-column: 1 / -1;
+  padding-left: 50px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #a7b2c3;
+  cursor: default;
+  font-size: 0.66rem;
+}
+
+.track-visibility-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--track-color, #5365d9);
+}
+
+.track-volume-control input {
+  width: 100%;
+  accent-color: #5365d9;
+  cursor: pointer;
+}
+
+.track-volume-control em {
+  color: #dce3ef;
+  font-style: normal;
+  text-align: right;
+}
+
+.track-quick-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.track-action-button {
+  flex: 1;
+  min-width: 0;
+  padding: 0.32rem 0.45rem;
+  border: 1px solid #3a4252;
+  border-radius: 999px;
+  background: #222833;
+  color: #9ba7b8;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.track-action-button:hover {
+  background: #2b3240;
+  color: #edf2fb;
+}
+
+.track-action-button.is-active {
+  border-color: var(--track-color, #5365d9);
+  background: color-mix(in srgb, var(--track-color, #5365d9) 22%, #222833);
+  color: #ffffff;
+}
+
+.mini-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #9ba7b8;
+}
+
+.mini-actions button {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #aeb8c8;
+  font-size: 0.8rem;
+}
+
+.mini-actions button:hover {
+  background: #373e4c;
+  color: #ffffff;
+}
+
+.mini-actions button.is-muted {
+  color: #ff7f7f;
+}
+
+.mini-actions span,
+.mini-actions select {
+  border: 1px solid #343b49;
+  border-radius: 2px;
+  background: #20242d;
+  padding: 0.14rem 0.35rem;
+  color: #7f8b9d;
+  font-size: 0.68rem;
+}
+
+.mini-actions select {
+  width: 54px;
+  height: 22px;
+}
+
+.add-track-button {
+  justify-self: start;
+  margin: 0.25rem 0 0.35rem 2.65rem;
+}
+
+
+.instrument-menu {
+  position: absolute;
+  top: 48px;
+  left: 56px;
+  z-index: 10;
+  display: grid;
+  width: 180px;
+  max-height: 360px;
+  border: 1px solid #3a4352;
+  border-radius: 6px;
+  background: #191d25;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
+  overflow-y: auto;
+}
+
+.instrument-menu button {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 0.55rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #cbd4e0;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.instrument-menu button span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-menu button:hover,
+.instrument-menu button.is-active {
+  background: #2f3746;
+  color: #ffffff;
+}
+
