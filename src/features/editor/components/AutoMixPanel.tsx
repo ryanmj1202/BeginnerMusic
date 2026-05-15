@@ -1,11 +1,12 @@
 ﻿import { useState, type CSSProperties, type DragEvent } from 'react'
 import type { AutoMixGenre, AutoMixSettings, Project } from '../../../types/music'
 import { getInstrumentImage, getInstrumentLabel } from '../../../lib/midi/generalMidi'
-import { AUTO_MIX_GENRES, getAutoMixRecommendedPriority, getAutoMixSettings } from '../utils/autoMixProject'
+import { AUTO_MIX_GENRES, getAutoMixGenrePreset, getAutoMixRecommendedPriority, getAutoMixSettings } from '../utils/autoMixProject'
 
 type AutoMixPanelProps = {
   applyAutoMix: () => void
   project: Project
+  resetAutoMix: () => void
   updateAutoMixSettings: (updates: Partial<AutoMixSettings>) => void
 }
 
@@ -16,6 +17,7 @@ function getPriorityMap(trackOrder: string[]) {
 export function AutoMixPanel({
   applyAutoMix,
   project,
+  resetAutoMix,
   updateAutoMixSettings,
 }: AutoMixPanelProps) {
   const settings = getAutoMixSettings(project)
@@ -49,6 +51,7 @@ export function AutoMixPanel({
       ))
       .map((track) => track.id)
     updateAutoMixSettings({
+      ...getAutoMixGenrePreset(genre),
       recommendedGenre: genre,
       trackOrder: nextOrder,
       trackPriorities: getPriorityMap(nextOrder),
@@ -63,6 +66,7 @@ export function AutoMixPanel({
           <span>음악을 듣기 좋게 만들어 줍니다.</span>
         </div>
         <div className="auto-mix-actions">
+          <button type="button" onPointerDown={resetAutoMix}>초기화</button>
           <button type="button" onPointerDown={applyAutoMix}>자동 균형 조정</button>
         </div>
       </header>

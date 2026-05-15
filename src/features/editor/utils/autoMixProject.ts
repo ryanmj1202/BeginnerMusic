@@ -34,6 +34,15 @@ export const AUTO_MIX_GENRES: Array<{ id: AutoMixGenre; label: string }> = [
   { id: 'orchestra', label: '오케스트라' },
 ]
 
+const GENRE_SETTING_PRESETS: Record<AutoMixGenre, Pick<AutoMixSettings, 'brightness' | 'reverb' | 'stereoWidth' | 'strength'>> = {
+  balanced: { brightness: 0.5, reverb: 0.25, stereoWidth: 0.45, strength: 0.75 },
+  ballad: { brightness: 0.48, reverb: 0.45, stereoWidth: 0.35, strength: 0.7 },
+  rock: { brightness: 0.6, reverb: 0.22, stereoWidth: 0.55, strength: 0.8 },
+  hiphop: { brightness: 0.52, reverb: 0.18, stereoWidth: 0.5, strength: 0.85 },
+  edm: { brightness: 0.65, reverb: 0.3, stereoWidth: 0.75, strength: 0.85 },
+  orchestra: { brightness: 0.55, reverb: 0.5, stereoWidth: 0.65, strength: 0.72 },
+}
+
 const GENRE_ROLE_PRIORITY: Record<AutoMixGenre, Record<TrackRole, number>> = {
   balanced: { audio: 3, bass: 4, drums: 4, lead: 5, pad: 2 },
   ballad: { audio: 3, bass: 3, drums: 2, lead: 5, pad: 4 },
@@ -98,6 +107,10 @@ export function getAutoMixRecommendedPriority(project: Project, track: Track, ge
   return GENRE_ROLE_PRIORITY[genre][classifyTrack(project, track)]
 }
 
+export function getAutoMixGenrePreset(genre: AutoMixGenre) {
+  return GENRE_SETTING_PRESETS[genre]
+}
+
 export const DEFAULT_AUTO_MIX_SETTINGS: AutoMixSettings = {
   strength: 0.75,
   reverb: 0.25,
@@ -119,7 +132,7 @@ export function getAutoMixSettings(project: Project): AutoMixSettings {
 function getTrackPriority(project: Project, settings: AutoMixSettings, analysis: TrackAnalysis) {
   const orderedIndex = settings.trackOrder?.indexOf(analysis.track.id) ?? -1
   if (orderedIndex >= 0) return Math.max(1, 5 - orderedIndex)
-  return settings.trackPriorities[analysis.track.id] ?? getAutoMixRecommendedPriority(project, analysis.track, 'balanced')
+  return settings.trackPriorities[analysis.track.id] ?? getAutoMixRecommendedPriority(project, analysis.track, settings.recommendedGenre ?? 'balanced')
 }
 
 function getTargetPan(analysis: TrackAnalysis, sideIndex: number) {
