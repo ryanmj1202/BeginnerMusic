@@ -109,7 +109,7 @@ export function TrackPanel({
               <span>{getInstrumentLabel(track.instrumentId)}</span>
             </div>
 
-            <label className="track-visibility-toggle" onPointerDownCapture={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+            <label className="track-visibility-toggle">
               <input
                 type="checkbox"
                 checked={track.pianoRollVisible ?? true}
@@ -118,7 +118,7 @@ export function TrackPanel({
               <span>편집창 표시</span>
             </label>
 
-            <label className="track-volume-control" onPointerDown={(event) => event.stopPropagation()}>
+            <label className="track-volume-control">
               <span>음량</span>
               <input
                 aria-label={`${track.name} 음량`}
@@ -132,7 +132,7 @@ export function TrackPanel({
               <em>{Math.round(track.volume * 100)}</em>
             </label>
 
-            <label className="track-volume-control" onPointerDown={(event) => event.stopPropagation()}>
+            <label className="track-volume-control">
               <span>좌우 균형</span>
               <input
                 aria-label={`${track.name} 좌우 균형`}
@@ -146,7 +146,7 @@ export function TrackPanel({
               <em>{Math.round((track.pan ?? 0) * 100)}</em>
             </label>
 
-            <label className="track-volume-control" onPointerDown={(event) => event.stopPropagation()}>
+            <label className="track-volume-control">
               <span>투명도</span>
               <input
                 aria-label={`${track.name} 편집창 투명도`}
@@ -155,22 +155,19 @@ export function TrackPanel({
                 max="1"
                 step="0.05"
                 value={track.pianoRollOpacity ?? 1}
-                onPointerDownCapture={(event) => event.stopPropagation()}
                 onInput={(event) => updateTrack(track.id, { pianoRollOpacity: Number(event.currentTarget.value) })}
                 onChange={(event) => updateTrack(track.id, { pianoRollOpacity: Number(event.target.value) })}
               />
               <em>{Math.round((track.pianoRollOpacity ?? 1) * 100)}</em>
             </label>
 
-            <div className="track-quick-actions" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="track-quick-actions">
               <button
                 type="button"
                 className={track.solo ? 'track-action-button is-active' : 'track-action-button'}
                 aria-pressed={track.solo}
                 aria-label={`${track.name} 솔로 ${track.solo ? '끄기' : '켜기'}`}
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return
-                  event.preventDefault()
+                onClick={(event) => {
                   event.stopPropagation()
                   toggleTrackSolo(track.id, !track.solo)
                 }}
@@ -182,9 +179,7 @@ export function TrackPanel({
                 className={track.mute ? 'track-action-button is-active' : 'track-action-button'}
                 aria-pressed={track.mute}
                 aria-label={`${track.name} 음소거 ${track.mute ? '끄기' : '켜기'}`}
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return
-                  event.preventDefault()
+                onClick={(event) => {
                   event.stopPropagation()
                   toggleTrackMute(track.id, !track.mute)
                 }}

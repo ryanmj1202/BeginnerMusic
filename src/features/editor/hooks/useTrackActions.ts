@@ -97,7 +97,9 @@ export function useTrackActions({
           nextTrack.solo !== track.solo ||
           nextTrack.channel !== track.channel ||
           nextTrack.name !== track.name ||
-          nextTrack.color !== track.color
+          nextTrack.color !== track.color ||
+          nextTrack.pianoRollVisible !== track.pianoRollVisible ||
+          nextTrack.pianoRollOpacity !== track.pianoRollOpacity
         ) {
           changed = true
           return nextTrack

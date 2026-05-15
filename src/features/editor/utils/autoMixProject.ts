@@ -9,12 +9,20 @@ type TrackAnalysis = {
   track: Track
 }
 
-const ROLE_VOLUME: Record<TrackRole, number> = {
-  audio: 0.78,
-  bass: 0.82,
-  drums: 0.88,
-  lead: 0.84,
-  pad: 0.68,
+const PRIORITY_VOLUME: Record<number, number> = {
+  1: 0.5,
+  2: 0.6,
+  3: 0.7,
+  4: 0.8,
+  5: 0.9,
+}
+
+const ROLE_VOLUME_OFFSET: Record<TrackRole, number> = {
+  audio: 0,
+  bass: 0.02,
+  drums: 0.02,
+  lead: 0.01,
+  pad: -0.02,
 }
 
 export const AUTO_MIX_GENRES: Array<{ id: AutoMixGenre; label: string }> = [
@@ -79,10 +87,11 @@ function analyzeTrack(project: Project, track: Track): TrackAnalysis {
   }
 }
 
-function getTargetVolume(analysis: TrackAnalysis, maxDensity: number) {
+function getTargetVolume(analysis: TrackAnalysis, maxDensity: number, priority: number) {
   const densityRatio = maxDensity > 0 ? analysis.density / maxDensity : 0
-  const densityTrim = densityRatio > 0.7 ? -0.08 : densityRatio < 0.2 ? 0.04 : 0
-  return clamp(ROLE_VOLUME[analysis.role] + densityTrim, 0.35, 0.95)
+  const densityTrim = densityRatio > 0.7 ? -0.015 : densityRatio < 0.2 ? 0.015 : 0
+  const safePriority = Math.round(clamp(priority, 1, 5))
+  return clamp(PRIORITY_VOLUME[safePriority] + ROLE_VOLUME_OFFSET[analysis.role] + densityTrim, 0.35, 0.95)
 }
 
 export function getAutoMixRecommendedPriority(project: Project, track: Track, genre: AutoMixGenre) {
@@ -133,8 +142,7 @@ export function autoMixProject(project: Project): Project {
 
   activeAnalyses.forEach((analysis) => {
     const priority = getTrackPriority(project, settings, analysis)
-    const priorityGain = 0.86 + priority * 0.045
-    targetVolumes.set(analysis.track.id, getTargetVolume(analysis, maxDensity) * priorityGain + brightnessBoost)
+    targetVolumes.set(analysis.track.id, getTargetVolume(analysis, maxDensity, priority) + brightnessBoost)
   })
 
   const estimatedOutput = Math.sqrt([...targetVolumes.values()].reduce((sum, volume) => sum + volume * volume, 0))
