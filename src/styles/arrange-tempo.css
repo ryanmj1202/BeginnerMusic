@@ -1,7 +1,7 @@
 ﻿.arrange-view,
 .tempo-view {
   min-height: 0;
-  height: calc(100vh - 40px - 46px - 180px);
+  height: 100%;
   border-top: 1px solid #2a303b;
   background: #171b23;
   color: #aab4c4;

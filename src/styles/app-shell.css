@@ -1,8 +1,9 @@
 ﻿.app-shell {
   position: relative;
+  height: 100vh;
   min-height: 100vh;
   display: grid;
-  grid-template-rows: 40px 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   background: #1f222b;
   color: #dce3ef;
 }
@@ -24,10 +25,10 @@
 
 .top-bar {
   display: grid;
-  grid-template-columns: auto minmax(180px, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 0;
-  min-height: 40px;
+  min-height: 2.5rem;
   border-bottom: 1px solid #20242d;
   background: #181b22;
 }
@@ -36,6 +37,8 @@
 .top-actions {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .file-menu-wrap {
@@ -53,19 +56,21 @@
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
-  min-width: 72px;
+  min-width: max-content;
   justify-content: center;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: #8d99aa;
-  padding: 0 1rem;
+  padding: 0.35rem 1rem;
   font-size: 0.82rem;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .file-menu {
   position: absolute;
-  top: 40px;
+  top: 100%;
   left: 0;
   z-index: 20;
   display: grid;
@@ -90,7 +95,7 @@
 
 .utility-menu {
   position: absolute;
-  top: 40px;
+  top: 100%;
   right: 0;
   z-index: 24;
   display: grid;
@@ -173,7 +178,8 @@
 .project-title-input {
   align-self: center;
   justify-self: center;
-  width: min(320px, 90%);
+  width: min(20rem, 90%);
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 0.35rem 0.65rem;
@@ -181,6 +187,7 @@
   color: #dce3ef;
   font-size: 0.82rem;
   font-weight: 700;
+  line-height: 1.25;
   text-align: center;
 }
 

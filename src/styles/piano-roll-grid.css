@@ -58,7 +58,7 @@
   background: transparent;
   color: #8f9bad;
   font-size: 0.72rem;
-  line-height: 32px;
+  line-height: var(--roll-row-height, 2rem);
   text-align: left;
   z-index: 2;
 }
@@ -70,9 +70,9 @@
 .roll-grid-guides,
 .roll-playhead-layer {
   position: absolute;
-  left: 64px;
-  top: 32px;
-  width: max(var(--roll-grid-width), calc(100% - 64px));
+  left: var(--roll-key-width, 4rem);
+  top: var(--roll-row-height, 2rem);
+  width: max(var(--roll-grid-width), calc(100% - var(--roll-key-width, 4rem)));
   height: var(--roll-grid-height);
   pointer-events: none;
 }

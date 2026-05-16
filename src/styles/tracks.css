@@ -1,7 +1,7 @@
 ﻿.track-panel {
   grid-area: tracks;
   display: grid;
-  grid-template-rows: 58px auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
   border-right: 1px solid #12151b;
@@ -38,11 +38,11 @@
 
 .track-toolbar {
   display: grid;
-  grid-template-columns: 36px 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.35rem;
-  height: 58px;
-  padding: 0 0.8rem;
+  min-height: 58px;
+  padding: 0.45rem 0.8rem;
 }
 
 .track-toolbar strong {
@@ -67,8 +67,8 @@
 
 .back-button,
 .menu-button {
-  width: 32px;
-  height: 32px;
+  min-width: 2rem;
+  min-height: 2rem;
   border: 0;
   border-radius: 999px;
   background: #171b23;
@@ -78,11 +78,11 @@
 
 .track-panel-open-button {
   position: absolute;
-  top: 58px;
+  top: max(58px, 3.625rem);
   left: 8px;
   z-index: 18;
-  width: 32px;
-  height: 32px;
+  min-width: 2rem;
+  min-height: 2rem;
   border: 0;
   border-radius: 999px;
   background: #171b23;

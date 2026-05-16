@@ -1,6 +1,9 @@
 ﻿.piano-roll-area {
   grid-area: roll;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
   background: #1f222b;
   overflow: hidden;
 }
@@ -9,10 +12,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 46px;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-height: 46px;
   border-bottom: 1px solid #2e3441;
   background: #20242d;
-  padding: 0 0.8rem;
+  padding: 0.35rem 0.8rem;
 }
 
 .instrument-pill {
@@ -49,13 +54,14 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
   color: #dce3ef;
 }
 
 .roll-tools button {
   display: grid;
-  min-width: 32px;
-  height: 32px;
+  min-width: 2rem;
+  min-height: 2rem;
   place-items: center;
   border: 0;
   border-radius: 4px;
@@ -79,15 +85,15 @@
 }
 
 .roll-zoom-controls span {
-  min-width: 42px;
+  min-width: 3.2em;
   color: #aab5c5;
   font-size: 0.74rem;
   text-align: center;
 }
 
 .roll-zoom-controls button {
-  min-width: 26px;
-  height: 26px;
+  min-width: 1.65rem;
+  min-height: 1.65rem;
 }
 
 .roll-zoom-controls button:disabled {
@@ -104,8 +110,8 @@
 .division-buttons button {
   display: grid;
   grid-template-columns: 1fr;
-  min-width: 34px;
-  height: 32px;
+  min-width: 2.15rem;
+  min-height: 2rem;
   place-items: center;
   border-radius: 4px;
   background: #171b23;
@@ -132,9 +138,10 @@
 
 .piano-roll {
   display: grid;
-  grid-template-columns: 64px minmax(1024px, 1fr);
-  grid-auto-rows: 32px;
-  height: calc(100vh - 40px - 46px - var(--detail-panel-height, 180px));
+  grid-template-columns: var(--roll-key-width, 4rem) minmax(64rem, 1fr);
+  grid-auto-rows: var(--roll-row-height, 2rem);
+  height: auto;
+  min-height: 0;
   overflow: auto;
   position: relative;
   contain: layout paint;
@@ -185,7 +192,7 @@
 
 .audio-roll-lane {
   position: relative;
-  min-height: calc(100vh - 40px - 46px - var(--detail-panel-height, 180px) - 82px);
+  min-height: 100%;
   padding: 1rem 0.9rem;
 }
 

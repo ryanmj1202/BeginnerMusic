@@ -3,6 +3,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
   border-top: 1px solid #303844;
   background: #171a1f;
 }
@@ -10,8 +11,9 @@
 .bottom-panel-tabs {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 0.2rem;
-  padding-left: 64px;
+  padding-left: var(--roll-key-width, 4rem);
   border-bottom: 1px solid #303844;
   background: #20242d;
 }
@@ -19,6 +21,7 @@
 .bottom-panel-tabs button {
   display: grid;
   align-content: center;
+  min-height: 2.125rem;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -36,13 +39,14 @@
 
 .detail-panel {
   display: grid;
-  grid-template-rows: 34px minmax(0, 1fr) 54px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
+  min-height: 0;
   background: #171a1f;
 }
 
 .detail-panel.is-collapsed {
-  grid-template-rows: 34px 54px;
+  grid-template-rows: auto auto;
 }
 
 .detail-header {
@@ -56,13 +60,15 @@
 .detail-tabs {
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 0.2rem;
-  padding-left: 64px;
+  padding-left: var(--roll-key-width, 4rem);
 }
 
 .detail-tabs button {
   display: grid;
   align-content: center;
+  min-height: 2.125rem;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -86,7 +92,7 @@
   background: transparent;
   color: #b8c3d4;
   font-size: 0.72rem;
-  padding: 0 0.75rem;
+  padding: 0.35rem 0.75rem;
 }
 
 .detail-toggle-button:hover {

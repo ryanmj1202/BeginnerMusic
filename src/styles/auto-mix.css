@@ -1,7 +1,7 @@
 ﻿.auto-mix-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: calc(100vh - 40px - var(--detail-panel-height, 180px));
+  height: 100%;
   min-height: 0;
   overflow: auto;
   background:
