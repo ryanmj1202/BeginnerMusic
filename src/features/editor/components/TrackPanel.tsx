@@ -147,9 +147,9 @@ export function TrackPanel({
             </label>
 
             <label className="track-volume-control">
-              <span>투명도</span>
+              <span>불투명도</span>
               <input
-                aria-label={`${track.name} 편집창 투명도`}
+                aria-label={`${track.name} 편집창 불투명도`}
                 type="range"
                 min="0.15"
                 max="1"
