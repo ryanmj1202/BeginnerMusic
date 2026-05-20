@@ -445,6 +445,7 @@
 .detail-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.65rem;
   padding: 0.55rem 1rem;
   border-top: 1px solid #303844;
@@ -469,6 +470,74 @@
   background: #171b23;
   border: 1px solid #364150;
   font-size: 0.78rem;
+}
+
+.metronome-control {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.55rem;
+  min-height: 34px;
+  border-left: 1px solid #303844;
+  padding-left: 0.7rem;
+}
+
+.metronome-toggle {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #364150;
+  border-radius: 999px;
+  background: #171b23;
+  color: #9ba7b8;
+  padding: 0;
+}
+
+.metronome-toggle:hover,
+.metronome-control.is-active .metronome-toggle {
+  border-color: #4256de;
+  background: #4256de;
+  color: #ffffff;
+}
+
+.metronome-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.metronome-control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.metronome-control span {
+  color: #8f9bad;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.metronome-control input {
+  width: 3.6rem;
+  min-width: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #ffffff;
+  padding: 0.16rem 0.1rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.metronome-control input:focus {
+  outline: 1px solid #5365d9;
+  outline-offset: 2px;
 }
 
 .transport-bar {
@@ -512,6 +581,11 @@
 }
 
 .selected-note-summary {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   justify-self: center;
 }
 

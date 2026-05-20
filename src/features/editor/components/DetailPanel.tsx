@@ -3,7 +3,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   SetStateAction,
 } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Note } from '../../../types/music'
 import { TEMPO_PRESETS, TERMINOLOGY_HELP } from '../constants'
 import { getPitchName } from '../helpers'
@@ -156,7 +156,13 @@ export function DetailPanel({
 }: DetailPanelProps) {
   const selectedValue = activeNoteControl ? getSelectedNoteValue(activeNoteControl.key) : 0
   const [draftControlValue, setDraftControlValue] = useState<number | null>(null)
+  const [metronomeOn, setMetronomeOn] = useState(false)
+  const metronomeAudioContextRef = useRef<AudioContext | null>(null)
   const displayValue = draftControlValue ?? selectedValue
+  const parsedMetronomeTempo = Number(tempoInput)
+  const metronomeTempo = Number.isFinite(parsedMetronomeTempo) && parsedMetronomeTempo > 0
+    ? parsedMetronomeTempo
+    : projectTempo
   const range = activeNoteControl ? getControlRange(activeNoteControl.key) : null
   const editableNotes = editableSelectedNotes.length > 0
     ? editableSelectedNotes
@@ -167,6 +173,66 @@ export function DetailPanel({
   useEffect(() => {
     setDraftControlValue(null)
   }, [activeNoteControl?.key, selectedNote?.id, selectedValue])
+
+  useEffect(() => {
+    return () => {
+      void metronomeAudioContextRef.current?.close()
+      metronomeAudioContextRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!metronomeOn || !isPlaying || metronomeTempo <= 0) return
+
+    let beatIndex = 0
+    let cancelled = false
+
+    function playClick(accent: boolean) {
+      const context = metronomeAudioContextRef.current
+      if (!context) return
+
+      const now = context.currentTime
+      const oscillator = context.createOscillator()
+      const gain = context.createGain()
+
+      oscillator.type = 'sine'
+      oscillator.frequency.setValueAtTime(accent ? 1320 : 880, now)
+      gain.gain.setValueAtTime(0.0001, now)
+      gain.gain.exponentialRampToValueAtTime(accent ? 0.22 : 0.15, now + 0.006)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06)
+
+      oscillator.connect(gain)
+      gain.connect(context.destination)
+      oscillator.onended = () => {
+        oscillator.disconnect()
+        gain.disconnect()
+      }
+      oscillator.start(now)
+      oscillator.stop(now + 0.07)
+    }
+
+    async function startMetronome() {
+      metronomeAudioContextRef.current ??= new AudioContext()
+
+      if (metronomeAudioContextRef.current.state === 'suspended') {
+        await metronomeAudioContextRef.current.resume()
+      }
+
+      if (!cancelled) playClick(true)
+    }
+
+    void startMetronome()
+
+    const intervalId = window.setInterval(() => {
+      beatIndex = (beatIndex + 1) % 4
+      playClick(beatIndex === 0)
+    }, Math.max(80, (60 / metronomeTempo) * 1000))
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [isPlaying, metronomeOn, metronomeTempo])
 
   function updateControlValue(rawValue: number) {
     if (!activeNoteControl) return
@@ -350,7 +416,40 @@ export function DetailPanel({
         >
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <span>{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 상자 없음'}</span>
+        <div className={metronomeOn ? 'metronome-control is-active' : 'metronome-control'}>
+          <button
+            aria-label={metronomeOn ? '메트로놈 끄기' : '메트로놈 켜기'}
+            aria-pressed={metronomeOn}
+            className="metronome-toggle"
+            onPointerDown={(event) => {
+              event.preventDefault()
+              setMetronomeOn((current) => !current)
+            }}
+            type="button"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10.6 3h2.8l6 18H4.6l6-18Z" />
+              <path d="M12 7v10" />
+              <path d="m12 14 4-4" />
+              <path d="M8.4 21h7.2" />
+            </svg>
+          </button>
+          <label>
+            <span>BPM</span>
+            <input
+              aria-label="BPM"
+              inputMode="numeric"
+              onBlur={commitTempoInput}
+              onChange={(event) => changeTempoInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+              type="text"
+              value={tempoInput}
+            />
+          </label>
+        </div>
+        <span className="selected-note-summary">{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 상자 없음'}</span>
       </div>
     </section>
   )
