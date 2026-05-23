@@ -169,6 +169,17 @@ export function useFileActions({
     setFileMenuOpen(false)
   }
 
+  function saveProjectFileAs() {
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${project.title || 'beginner-music'}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    setFileMenuOpen(false)
+  }
+
   function saveMidiFile() {
     if ((project.audioClips ?? []).length > 0) {
       alert('녹음이나 오디오 파일이 들어간 프로젝트는 MIDI로 저장할 수 없습니다. MP3 저장을 사용해 주세요.')
@@ -278,6 +289,7 @@ export function useFileActions({
     saveMidiFile,
     saveMp3File,
     saveProjectFile,
+    saveProjectFileAs,
     toggleVoiceRecording,
   }
 }
