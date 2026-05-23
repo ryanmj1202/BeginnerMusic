@@ -25,7 +25,6 @@ type TopMenuProps = {
   saveMidiFile: () => void
   saveMp3File: () => void
   saveProjectFile: () => void
-  saveProjectFileAs: () => void
   selectedPatternNoteCount: number
   setActiveEditorTab: Dispatch<SetStateAction<EditorTab>>
   setEditMenuOpen: Dispatch<SetStateAction<boolean>>
@@ -57,7 +56,6 @@ export function TopMenu({
   saveMidiFile,
   saveMp3File,
   saveProjectFile,
-  saveProjectFileAs,
   selectedPatternNoteCount,
   setActiveEditorTab,
   setEditMenuOpen,
@@ -87,7 +85,6 @@ export function TopMenu({
               <button type="button" onPointerDown={createNewProject}>새 파일</button>
               <button type="button" onPointerDown={openProjectFile}>열기</button>
               <button type="button" onPointerDown={saveProjectFile}>저장</button>
-              <button type="button" onPointerDown={saveProjectFileAs}>다른 이름으로 저장</button>
               <button type="button" disabled={isExportingMp3} onPointerDown={saveMp3File}>
                 {isExportingMp3 ? '파일 내보내는 중...' : 'MP3로 내보내기'}
               </button>
