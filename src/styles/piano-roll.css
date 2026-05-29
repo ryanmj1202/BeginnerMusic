@@ -74,6 +74,32 @@
   color: #ffffff;
 }
 
+.workstation-loop-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid #303746;
+  border-radius: 4px;
+  background: #171b23;
+  padding: 0.15rem;
+}
+
+.workstation-loop-controls button {
+  min-width: 3rem;
+  min-height: 1.65rem;
+}
+
+.workstation-loop-controls select {
+  min-height: 1.65rem;
+  border: 0;
+  border-radius: 3px;
+  background: #20242d;
+  color: #dce3ef;
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0 0.4rem;
+}
+
 .roll-zoom-controls {
   display: inline-flex;
   align-items: center;

@@ -84,6 +84,20 @@ export interface PatternPlacement {
   spanBeats: number
 }
 
+export interface WorkstationLoopSettings {
+  enabled: boolean
+  lengthBeats: number
+}
+
+export interface WorkstationPattern {
+  id: string
+  trackId: string
+  name: string
+  startBeat: number
+  lengthBeats: number
+  noteIds: string[]
+}
+
 export interface PatternRepeatGroup {
   id: string
   baseEndBeat: number
@@ -111,4 +125,6 @@ export interface Project {
   autoMixSections?: AutoMixSection[]
   patternPlacements?: PatternPlacement[]
   patternRepeatGroups?: PatternRepeatGroup[]
+  workstationLoop?: WorkstationLoopSettings
+  workstationPatterns?: WorkstationPattern[]
 }

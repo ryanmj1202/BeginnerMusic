@@ -1,4 +1,5 @@
 import { isDrumInstrument } from '../../lib/audio/toneTransport'
+import { normalizeWorkstationLoopSettings } from '../../lib/workstationLoop'
 import type { InstrumentId, Note, PatternRepeatGroup, Project, Track } from '../../types/music'
 import {
   BASE_HIGH_PITCH,
@@ -163,6 +164,17 @@ export function normalizeProject(project: Project): Project {
       gapBeats: Math.max(0, group.gapBeats ?? PATTERN_REPEAT_GAP_BEATS),
       repeats: (group.repeats ?? []).map((repeat) => ({ noteIds: repeat.noteIds ?? [] })),
     })).filter((group) => group.baseNoteIds.length > 0 && group.repeats.length > 0),
+    ...(project.workstationLoop
+      ? { workstationLoop: normalizeWorkstationLoopSettings(project.workstationLoop) }
+      : {}),
+    workstationPatterns: (project.workstationPatterns ?? []).filter((pattern) =>
+      normalizedTracks.some((track) => track.id === pattern.trackId),
+    ).map((pattern) => ({
+      ...pattern,
+      lengthBeats: Math.max(MIN_DURATION_BEATS, pattern.lengthBeats ?? DEFAULT_PROJECT_LENGTH_BEATS),
+      noteIds: pattern.noteIds ?? [],
+      startBeat: Math.max(0, pattern.startBeat ?? 0),
+    })),
   }
 }
 
@@ -350,7 +362,9 @@ export function hasUndoableProjectChange(current: Project, next: Project) {
     current.notesByTrack !== next.notesByTrack ||
     current.audioClips !== next.audioClips ||
     current.tempoSections !== next.tempoSections ||
-    current.patternPlacements !== next.patternPlacements
+    current.patternPlacements !== next.patternPlacements ||
+    current.workstationLoop !== next.workstationLoop ||
+    current.workstationPatterns !== next.workstationPatterns
   )
 }
 

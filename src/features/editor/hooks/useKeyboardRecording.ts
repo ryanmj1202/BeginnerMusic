@@ -5,6 +5,7 @@ import {
   isDrumInstrument,
   waitForInstrumentReady,
 } from '../../../lib/audio/toneTransport'
+import { getWorkstationLoopSettings } from '../../../lib/workstationLoop'
 import type {
   Note,
   Track,
@@ -19,6 +20,7 @@ import {
   buildTempoTimeline,
   createId,
   getBeatAtSecondsFromTimeline,
+  getSecondsAtBeatFromTimeline,
 } from '../helpers'
 import type {
   KeyboardRecordingNote,
@@ -51,6 +53,7 @@ export function useKeyboardRecording({
   totalBeatsRef,
 }: UseKeyboardRecordingOptions) {
   const midiControlsRef = useRef(new Map<number, MidiPerformanceControls>())
+  const liveMidiInstrumentsRef = useRef(new Map<string, ReturnType<typeof createInstrument>>())
   const liveMidiVoicesRef = useRef(new Map<string, LiveMidiVoice>())
   const selectedTrackRef = useRef<Track | undefined>(selectedTrack)
 
@@ -93,15 +96,25 @@ export function useKeyboardRecording({
       ? eventTimeStamp
       : now
     const elapsedMs = Math.max(0, eventTime - playbackStartMsRef.current)
-    const playbackTotalBeats = totalBeatsRef.current || totalBeats
+    const fullPlaybackBeats = totalBeatsRef.current || totalBeats
+    const loopSettings = getWorkstationLoopSettings(projectRef.current)
+    const playbackTotalBeats = loopSettings.enabled
+      ? Math.max(1, Math.min(fullPlaybackBeats, loopSettings.lengthBeats))
+      : fullPlaybackBeats
     const timeline = playbackTempoTimelineRef.current.length > 0
       ? playbackTempoTimelineRef.current
       : buildTempoTimeline(projectRef.current, playbackTotalBeats)
-    return getBeatAtSecondsFromTimeline(
+    const elapsedSeconds = playbackStartSecondsRef.current + elapsedMs / 1000
+    const playbackSeconds = loopSettings.enabled
+      ? elapsedSeconds % Math.max(0.001, getSecondsAtBeatFromTimeline(timeline, playbackTotalBeats))
+      : elapsedSeconds
+    const beat = getBeatAtSecondsFromTimeline(
       timeline,
-      playbackStartSecondsRef.current + elapsedMs / 1000,
+      playbackSeconds,
       playbackTotalBeats,
     )
+
+    return loopSettings.enabled && beat >= playbackTotalBeats ? 0 : beat
   }
 
   function playLiveKeyboardInput(trackId: string, pitch: number, velocity: number) {
@@ -126,6 +139,58 @@ export function useKeyboardRecording({
     return noteInput
   }
 
+  function applyProgramChangeToPlaybackTrack(trackId: string, instrumentId: string) {
+    const playbackTrack = activePlaybackTracksRef.current.find((item) => item.id === trackId)
+    if (!playbackTrack || playbackTrack.instrumentId === instrumentId) return
+
+    const previousInstrument = playbackTrack.instrument
+    const previousEffectInstrument = playbackTrack.effectInstrument
+    const nextInstrument = createInstrument(instrumentId)
+    if (playbackTrack.panner) {
+      nextInstrument.disconnect?.()
+      nextInstrument.connect?.(playbackTrack.panner)
+    }
+
+    playbackTrack.instrumentId = instrumentId
+    playbackTrack.instrument = nextInstrument
+    playbackTrack.effectInstrument = undefined
+    playbackTrack.isDrum = isDrumInstrument(instrumentId)
+    playbackTrack.scheduledLoopNoteKeys?.clear()
+    previousInstrument.triggerRelease(undefined, Tone.now())
+    previousInstrument.dispose()
+    previousEffectInstrument?.triggerRelease(undefined, Tone.now())
+    previousEffectInstrument?.dispose()
+    void waitForInstrumentReady(nextInstrument)
+  }
+
+  function getSharedLiveMidiKey(track: Track, controls: MidiPerformanceControls) {
+    const hasPerNoteRouting =
+      Math.abs(controls.pan) > 0.01 ||
+      controls.modulation > 0.01 ||
+      controls.reverb > 0.01
+
+    return hasPerNoteRouting ? null : `${track.id}:${track.instrumentId}`
+  }
+
+  function disposeSharedLiveMidiInstrument(sharedKey: string) {
+    const instrument = liveMidiInstrumentsRef.current.get(sharedKey)
+    if (!instrument) return
+
+    instrument.triggerRelease(undefined, Tone.now())
+    instrument.dispose()
+    liveMidiInstrumentsRef.current.delete(sharedKey)
+  }
+
+  function disposeSharedLiveMidiInstrumentsForTrack(trackId: string) {
+    Array.from(liveMidiInstrumentsRef.current.keys())
+      .filter((sharedKey) => sharedKey.startsWith(`${trackId}:`))
+      .forEach(disposeSharedLiveMidiInstrument)
+  }
+
+  function disposeAllSharedLiveMidiInstruments() {
+    Array.from(liveMidiInstrumentsRef.current.keys()).forEach(disposeSharedLiveMidiInstrument)
+  }
+
   function createLiveMidiVoice(code: string, pitch: number, velocity: number, controls: MidiPerformanceControls, channel?: number) {
     const currentTrack = getMidiTargetTrack(channel)
     if (!currentTrack) return null
@@ -134,8 +199,39 @@ export function useKeyboardRecording({
       if (voice.trackId !== currentTrack.id) stopLiveMidiVoice(voiceCode, true)
     })
 
-    const instrument = createInstrument(currentTrack.instrumentId, 'preview', { isolatedSoundFont: !isDrumInstrument(currentTrack.instrumentId) })
     const bentPitch = pitch + controls.pitchBend
+    const sharedKey = getSharedLiveMidiKey(currentTrack, controls)
+
+    if (sharedKey) {
+      const sharedInstrument = liveMidiInstrumentsRef.current.get(sharedKey) ??
+        createInstrument(currentTrack.instrumentId, 'preview', { isolatedSoundFont: !isDrumInstrument(currentTrack.instrumentId) })
+      if (!liveMidiInstrumentsRef.current.has(sharedKey)) {
+        liveMidiInstrumentsRef.current.set(sharedKey, sharedInstrument)
+      }
+      const noteInput = sharedInstrument.expectsMidi
+        ? bentPitch
+        : Tone.Frequency(bentPitch, 'midi').toFrequency()
+
+      const liveVoice: LiveMidiVoice = {
+        echo: null,
+        instrument: sharedInstrument,
+        noteInput,
+        panner: null,
+        sharedKey,
+        trackId: currentTrack.id,
+        vibrato: null,
+      }
+      liveMidiVoicesRef.current.set(code, liveVoice)
+
+      void waitForInstrumentReady(sharedInstrument).then(() => {
+        if (liveMidiVoicesRef.current.get(code) !== liveVoice) return
+        sharedInstrument.triggerAttack(noteInput, Tone.now(), velocity * controls.volume * controls.expression)
+      })
+
+      return null
+    }
+
+    const instrument = createInstrument(currentTrack.instrumentId, 'preview', { isolatedSoundFont: !isDrumInstrument(currentTrack.instrumentId) })
     const noteInput = instrument.expectsMidi
       ? bentPitch
       : Tone.Frequency(bentPitch, 'midi').toFrequency()
@@ -208,6 +304,8 @@ export function useKeyboardRecording({
 
     liveMidiVoicesRef.current.delete(code)
     liveVoice.instrument.triggerRelease(liveVoice.noteInput, Tone.now())
+    if (liveVoice.sharedKey) return
+
     if (immediate) {
       liveVoice.instrument.dispose()
       liveVoice.panner?.dispose()
@@ -258,6 +356,8 @@ export function useKeyboardRecording({
   }
 
   function updateActiveDurations() {
+    if (isPlaying && getWorkstationLoopSettings(projectRef.current).enabled) return
+
     const updatesByTrack = new Map<string, Map<string, number>>()
 
     keyboardRecordingRef.current.forEach((recording) => {
@@ -310,7 +410,7 @@ export function useKeyboardRecording({
 
     keyboardRecordingRef.current.set(code, {
       channel,
-      eventStartMs: isPlaying ? undefined : performance.now(),
+      eventStartMs: isPlaying && !getWorkstationLoopSettings(projectRef.current).enabled ? undefined : performance.now(),
       liveNoteInput,
       noteId: note.id,
       pitch,
@@ -470,12 +570,14 @@ export function useKeyboardRecording({
 
     const instrumentId = `gm-${Math.max(0, Math.min(127, program))}`
     stopLiveMidiVoicesForChannel(channel, true)
+    disposeSharedLiveMidiInstrumentsForTrack(currentTrack.id)
     const nextTrack = {
       ...currentTrack,
       channel: channel + 1,
       instrumentId,
     }
     selectedTrackRef.current = nextTrack
+    applyProgramChangeToPlaybackTrack(currentTrack.id, instrumentId)
     setProject((current) => ({
       ...current,
       tracks: current.tracks.map((track) =>
@@ -511,6 +613,7 @@ export function useKeyboardRecording({
 
   useEffect(() => {
     liveMidiVoicesRef.current.forEach((_, code) => stopLiveMidiVoice(code, true))
+    disposeAllSharedLiveMidiInstruments()
     keyboardRecordingRef.current.clear()
   }, [selectedTrack?.id])
 

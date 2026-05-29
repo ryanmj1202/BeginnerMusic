@@ -167,6 +167,10 @@ export type ActivePlaybackTrack = {
   nextIndex: number
   pan?: number
   panner?: { disconnect: () => unknown; dispose: () => unknown }
+  scheduledLoopNoteKeys?: Set<string>
+  sourceInstrumentId?: string
+  sourceNotes?: Note[]
+  sourceVolume?: number
 }
 
 export type OtherNotesByPitchCache = {

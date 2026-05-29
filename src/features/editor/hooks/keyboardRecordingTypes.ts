@@ -45,6 +45,7 @@ export type LiveMidiVoice = {
   instrument: ReturnType<typeof createInstrument>
   noteInput: number
   panner: Tone.Panner | null
+  sharedKey?: string
   trackId: string
   vibrato: Tone.Vibrato | null
 }

@@ -1,9 +1,16 @@
-import type { Dispatch, SetStateAction } from 'react'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import {
   getInstrumentIcon,
   getInstrumentImage,
   getInstrumentLabel,
 } from '../../../lib/midi/generalMidi'
+import {
+  WORKSTATION_LOOP_LENGTH_OPTIONS,
+  getWorkstationLoopSettings,
+  setWorkstationLoopSettings,
+  subscribeWorkstationLoopSettings,
+  type WorkstationLoopSettings,
+} from '../../../lib/workstationLoop'
 import type { Track } from '../../../types/music'
 import { NOTE_DIVISIONS, ROLL_ZOOM_LEVELS } from '../constants'
 import type { NoteDivision, RollZoom, ToolMode } from '../types'
@@ -35,6 +42,12 @@ export function PianoRollToolbar({
   visibleBars,
   zoomRoll,
 }: PianoRollToolbarProps) {
+  const [workstationLoop, setWorkstationLoop] = useState<WorkstationLoopSettings>(() =>
+    getWorkstationLoopSettings(),
+  )
+
+  useEffect(() => subscribeWorkstationLoopSettings(setWorkstationLoop), [])
+
   return (
     <div className="roll-header">
       <button
@@ -93,6 +106,25 @@ export function PianoRollToolbar({
         >
           ⌨ 키보드 입력
         </button>
+        <div className="workstation-loop-controls" aria-label="workstation loop">
+          <button
+            type="button"
+            className={workstationLoop.enabled ? 'is-active' : ''}
+            onPointerDown={() => setWorkstationLoopSettings({ enabled: !workstationLoop.enabled })}
+          >
+            Loop
+          </button>
+          <select
+            value={workstationLoop.lengthBeats}
+            onChange={(event) => setWorkstationLoopSettings({ lengthBeats: Number(event.target.value) })}
+          >
+            {WORKSTATION_LOOP_LENGTH_OPTIONS.map((lengthBeats) => (
+              <option key={lengthBeats} value={lengthBeats}>
+                {lengthBeats / 4} bar
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="roll-zoom-controls" aria-label="편집창 확대/축소">
           <button
             type="button"

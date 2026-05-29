@@ -9,9 +9,11 @@ import {
   stopPreviewNoteImmediately,
   waitForInstrumentReady,
 } from '../../../lib/audio/toneTransport'
+import { getWorkstationLoopSettings } from '../../../lib/workstationLoop'
 import type {
   Note,
   Project,
+  Track,
 } from '../../../types/music'
 import {
   PLAYBACK_LOOKAHEAD_BEATS,
@@ -58,6 +60,106 @@ export function usePlayback({
   totalBeats,
   totalBeatsRef,
 }: UsePlaybackOptions) {
+  function setManagedPlaybackTimeout(callback: () => void, delayMs: number) {
+    const timeoutId = window.setTimeout(() => {
+      activeTimeoutsRef.current = activeTimeoutsRef.current.filter((item) => item !== timeoutId)
+      callback()
+    }, Math.ceil(delayMs))
+
+    activeTimeoutsRef.current.push(timeoutId)
+    return timeoutId
+  }
+
+  function getPlaybackLoopState(project: Project, playbackTotalBeats = totalBeats) {
+    const settings = getWorkstationLoopSettings(project)
+    const lengthBeats = Math.max(1, Math.min(Math.max(1, playbackTotalBeats), settings.lengthBeats))
+
+    return {
+      enabled: settings.enabled,
+      lengthBeats,
+    }
+  }
+
+  function getPreparedPlaybackNotes(project: Project, track: Track, loopLengthBeats?: number) {
+    return (project.notesByTrack[track.id] ?? [])
+      .filter((note) => loopLengthBeats === undefined || (
+        note.startBeat < loopLengthBeats &&
+        note.startBeat + note.durationBeats > 0
+      ))
+      .map((note) => {
+        const startBeat = loopLengthBeats === undefined
+          ? note.startBeat
+          : Math.max(0, note.startBeat)
+        const durationBeats = loopLengthBeats === undefined
+          ? note.durationBeats
+          : Math.min(note.durationBeats, Math.max(0, loopLengthBeats - startBeat))
+
+        return {
+          ...note,
+          durationBeats,
+          startBeat,
+          pitch: note.pitch + (note.pitchBend ?? 0),
+          velocity: note.velocity * (note.volume ?? 1) * (note.expression ?? 1) * track.volume,
+        }
+      })
+      .filter((note) => note.durationBeats > 0)
+      .sort((left, right) => left.startBeat - right.startBeat)
+  }
+
+  function getLoopPlaybackSeconds(timeline: ReturnType<typeof buildTempoTimeline>, loopLengthBeats: number) {
+    const elapsedSeconds = playbackStartSecondsRef.current + (performance.now() - playbackStartMsRef.current) / 1000
+    const loopDurationSeconds = Math.max(0.001, getSecondsAtBeatFromTimeline(timeline, loopLengthBeats))
+
+    return {
+      cycle: Math.floor(elapsedSeconds / loopDurationSeconds),
+      loopDurationSeconds,
+      seconds: elapsedSeconds % loopDurationSeconds,
+    }
+  }
+
+  function replacePlaybackTrackInstrument(track: ActivePlaybackTrack, instrumentId: string) {
+    if (track.instrumentId === instrumentId) return
+
+    const previousInstrument = track.instrument
+    const previousEffectInstrument = track.effectInstrument
+    const nextInstrument = createInstrument(instrumentId)
+    if (track.panner) {
+      nextInstrument.disconnect?.()
+      nextInstrument.connect?.(track.panner)
+    }
+
+    track.instrumentId = instrumentId
+    track.instrument = nextInstrument
+    track.effectInstrument = undefined
+    track.isDrum = isDrumInstrument(instrumentId)
+    track.scheduledLoopNoteKeys?.clear()
+    activeInstrumentsRef.current = activeInstrumentsRef.current.filter((instrument) =>
+      instrument !== previousInstrument && instrument !== previousEffectInstrument,
+    )
+    activeInstrumentsRef.current.push(nextInstrument)
+    previousInstrument.triggerRelease(undefined)
+    previousInstrument.dispose()
+    previousEffectInstrument?.triggerRelease(undefined)
+    previousEffectInstrument?.dispose()
+    void waitForInstrumentReady(nextInstrument)
+  }
+
+  function getFirstNoteIndexAtBeat(notes: Note[], beat: number) {
+    let low = 0
+    let high = notes.length
+
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2)
+      if (notes[mid].startBeat < beat) {
+        low = mid + 1
+      } else {
+        high = mid
+      }
+    }
+
+    return low
+  }
+
   function setPlaybackKeyPressedClass(rawPitch: number, pressed: boolean) {
     const pitch = Math.max(0, Math.min(127, Math.round(rawPitch)))
     pianoRollRef.current
@@ -130,11 +232,14 @@ export function usePlayback({
       panner.disconnect()
     })
     activeAudioNodesRef.current = []
+    const playbackInstruments = new Set(activeInstrumentsRef.current)
     activePlaybackTracksRef.current.forEach((track) => {
+      playbackInstruments.add(track.instrument)
+      if (track.effectInstrument) playbackInstruments.add(track.effectInstrument)
       track.panner?.disconnect()
       track.panner?.dispose()
     })
-    activeInstrumentsRef.current.forEach((instrument) => {
+    playbackInstruments.forEach((instrument) => {
       instrument.triggerRelease(undefined)
       instrument.dispose()
     })
@@ -151,6 +256,7 @@ export function usePlayback({
     note: Note,
     currentBeat: number,
     sessionId: number,
+    timing?: { delayMs: number; durationSeconds: number },
   ) {
     const timeline = playbackTempoTimelineRef.current.length > 0
       ? playbackTempoTimelineRef.current
@@ -158,11 +264,11 @@ export function usePlayback({
     const offsetBeat = Math.max(0, currentBeat - note.startBeat)
     const playbackStartBeat = note.startBeat + offsetBeat
     const playbackEndBeat = note.startBeat + note.durationBeats
-    const remainingDurationSeconds = Math.max(
+    const remainingDurationSeconds = timing?.durationSeconds ?? Math.max(
       0.04,
       getSecondsBetweenBeatsFromTimeline(timeline, playbackStartBeat, playbackEndBeat),
     )
-    const delayMs = Math.max(
+    const delayMs = timing?.delayMs ?? Math.max(
       0,
       (getSecondsAtBeatFromTimeline(timeline, note.startBeat) - getSecondsAtBeatFromTimeline(timeline, currentBeat)) * 1000,
     )
@@ -173,7 +279,7 @@ export function usePlayback({
     const notePan = Math.max(-1, Math.min(1, note.pan ?? 0))
     const routedPan = Math.max(-1, Math.min(1, (track.pan ?? 0) + notePan))
     const notePitch = note.pitch
-    const startTimeoutId = window.setTimeout(() => {
+    setManagedPlaybackTimeout(() => {
       if (sessionId !== playbackSessionRef.current) return
       markPlaybackPitchPressed(notePitch)
 
@@ -267,14 +373,12 @@ export function usePlayback({
           panner?.dispose()
         }, Math.max(160, routedDuration * 1000 + 450 + noteReverb * 1800))
       })
-    }, Math.ceil(delayMs))
+    }, delayMs)
 
-    activeTimeoutsRef.current.push(startTimeoutId)
-    const releaseTimeoutId = window.setTimeout(() => {
+    setManagedPlaybackTimeout(() => {
       if (sessionId !== playbackSessionRef.current) return
       markPlaybackPitchReleased(notePitch)
-    }, Math.ceil(delayMs + remainingDurationSeconds * 1000))
-    activeTimeoutsRef.current.push(releaseTimeoutId)
+    }, delayMs + remainingDurationSeconds * 1000)
   }
 
   function schedulePlaybackWindow(currentBeat: number) {
@@ -303,6 +407,116 @@ export function usePlayback({
     })
   }
 
+  function syncLoopPlaybackTracks(currentProject: Project, loopLengthBeats: number) {
+    const hasSoloTrack = currentProject.tracks.some((item) => item.solo)
+
+    activePlaybackTracksRef.current.forEach((activeTrack) => {
+      const sourceTrack = currentProject.tracks.find((track) => track.id === activeTrack.id)
+      if (!sourceTrack || sourceTrack.mute || (hasSoloTrack && !sourceTrack.solo)) {
+        activeTrack.notes = []
+        return
+      }
+
+      if (activeTrack.instrumentId !== sourceTrack.instrumentId) {
+        replacePlaybackTrackInstrument(activeTrack, sourceTrack.instrumentId)
+      }
+
+      activeTrack.isDrum = isDrumInstrument(sourceTrack.instrumentId)
+      activeTrack.pan = sourceTrack.pan ?? 0
+      const sourceNotes = currentProject.notesByTrack[sourceTrack.id] ?? []
+      if (
+        activeTrack.sourceNotes === sourceNotes &&
+        activeTrack.sourceInstrumentId === sourceTrack.instrumentId &&
+        activeTrack.sourceVolume === sourceTrack.volume
+      ) {
+        return
+      }
+
+      activeTrack.notes = getPreparedPlaybackNotes(currentProject, sourceTrack, loopLengthBeats)
+      activeTrack.sourceInstrumentId = sourceTrack.instrumentId
+      activeTrack.sourceNotes = sourceNotes
+      activeTrack.sourceVolume = sourceTrack.volume
+    })
+  }
+
+  function scheduleLoopPlaybackWindow(sessionId: number, loopLengthBeats: number) {
+    const timeline = playbackTempoTimelineRef.current.length > 0
+      ? playbackTempoTimelineRef.current
+      : buildTempoTimeline(projectRef.current, loopLengthBeats)
+    const playbackPosition = getLoopPlaybackSeconds(timeline, loopLengthBeats)
+    const currentBeat = getBeatAtSecondsFromTimeline(timeline, playbackPosition.seconds, loopLengthBeats)
+    const currentBeatSeconds = getSecondsAtBeatFromTimeline(timeline, currentBeat)
+    const windowEndBeat = currentBeat + PLAYBACK_LOOKAHEAD_BEATS
+    const windows = [
+      {
+        cycle: playbackPosition.cycle,
+        endBeat: Math.min(loopLengthBeats, windowEndBeat),
+        startBeat: currentBeat,
+      },
+    ]
+
+    if (windowEndBeat > loopLengthBeats) {
+      windows.push({
+        cycle: playbackPosition.cycle + 1,
+        endBeat: Math.min(loopLengthBeats, windowEndBeat - loopLengthBeats),
+        startBeat: 0,
+      })
+    }
+
+    syncLoopPlaybackTracks(projectRef.current, loopLengthBeats)
+
+    activePlaybackTracksRef.current.forEach((track) => {
+      const scheduledKeys = track.scheduledLoopNoteKeys ?? new Set<string>()
+      track.scheduledLoopNoteKeys = scheduledKeys
+      scheduledKeys.forEach((key) => {
+        const cycle = Number(key.slice(0, key.indexOf(':')))
+        if (cycle < playbackPosition.cycle - 1) scheduledKeys.delete(key)
+      })
+
+      windows.forEach((windowRange) => {
+        let noteIndex = getFirstNoteIndexAtBeat(track.notes, windowRange.startBeat)
+
+        while (noteIndex < track.notes.length) {
+          const note = track.notes[noteIndex]
+          if (note.startBeat >= windowRange.endBeat) break
+          const noteEndBeat = note.startBeat + note.durationBeats
+          const scheduledKey = `${windowRange.cycle}:${note.id}`
+          if (scheduledKeys.has(scheduledKey)) {
+            noteIndex += 1
+            continue
+          }
+          scheduledKeys.add(scheduledKey)
+
+          const effectiveStartBeat = note.startBeat
+          const effectiveEndBeat = Math.min(loopLengthBeats, noteEndBeat)
+          const durationSeconds = getSecondsBetweenBeatsFromTimeline(timeline, effectiveStartBeat, effectiveEndBeat)
+          if (durationSeconds <= 0) {
+            noteIndex += 1
+            continue
+          }
+
+          const targetBeatSeconds = getSecondsAtBeatFromTimeline(timeline, effectiveStartBeat)
+          const delaySeconds =
+            (windowRange.cycle - playbackPosition.cycle) * playbackPosition.loopDurationSeconds +
+            targetBeatSeconds -
+            currentBeatSeconds
+
+          schedulePlaybackNote(
+            track,
+            { ...note, durationBeats: effectiveEndBeat - effectiveStartBeat, startBeat: effectiveStartBeat },
+            currentBeat,
+            sessionId,
+            {
+              delayMs: Math.max(0, delaySeconds * 1000),
+              durationSeconds: Math.max(0.04, durationSeconds),
+            },
+          )
+          noteIndex += 1
+        }
+      })
+    })
+  }
+
   function schedulePlaybackAudioClips(currentProject: Project, startBeat: number, sessionId: number) {
     const timeline = playbackTempoTimelineRef.current.length > 0
       ? playbackTempoTimelineRef.current
@@ -321,7 +535,7 @@ export function usePlayback({
         0,
         (getSecondsAtBeatFromTimeline(timeline, clip.startBeat) - getSecondsAtBeatFromTimeline(timeline, startBeat)) * 1000,
       )
-      const timeoutId = window.setTimeout(() => {
+      setManagedPlaybackTimeout(() => {
         if (sessionId !== playbackSessionRef.current) return
         const context = Tone.getContext().rawContext
         void fetch(clip.dataUrl)
@@ -352,20 +566,27 @@ export function usePlayback({
             source.start(context.currentTime, clipOffsetSeconds, playDurationSeconds)
           })
           .catch(() => undefined)
-      }, Math.ceil(delayMs))
-      activeTimeoutsRef.current.push(timeoutId)
+      }, delayMs)
     })
   }
 
   function getLivePlaybackBeat() {
     const elapsedMs = performance.now() - playbackStartMsRef.current
-    const playbackTotalBeats = totalBeatsRef.current || totalBeats
+    const project = projectRef.current
+    const totalPlaybackBeats = totalBeatsRef.current || totalBeats
+    const loopState = getPlaybackLoopState(project, totalPlaybackBeats)
+    const playbackTotalBeats = loopState.enabled ? loopState.lengthBeats : totalPlaybackBeats
     const timeline = playbackTempoTimelineRef.current.length > 0
       ? playbackTempoTimelineRef.current
-      : buildTempoTimeline(projectRef.current, playbackTotalBeats)
+      : buildTempoTimeline(project, playbackTotalBeats)
+    const elapsedSeconds = playbackStartSecondsRef.current + elapsedMs / 1000
+    const playbackSeconds = loopState.enabled
+      ? elapsedSeconds % Math.max(0.001, getSecondsAtBeatFromTimeline(timeline, playbackTotalBeats))
+      : elapsedSeconds
+
     return Math.min(
       playbackTotalBeats,
-      getBeatAtSecondsFromTimeline(timeline, playbackStartSecondsRef.current + elapsedMs / 1000, playbackTotalBeats),
+      getBeatAtSecondsFromTimeline(timeline, playbackSeconds, playbackTotalBeats),
     )
   }
 
@@ -418,29 +639,31 @@ export function usePlayback({
     await ensureAudioReady()
     if (sessionId !== playbackSessionRef.current) return
 
-    const safeStartBeat = Math.max(0, Math.min(totalBeats, startBeat))
     const currentProject = projectRef.current
+    const loopState = getPlaybackLoopState(currentProject, totalBeats)
+    const playbackTotalBeats = loopState.enabled ? loopState.lengthBeats : totalBeats
+    const safeStartBeat = loopState.enabled
+      ? ((startBeat % playbackTotalBeats) + playbackTotalBeats) % playbackTotalBeats
+      : Math.max(0, Math.min(playbackTotalBeats, startBeat))
     const arrangedPlaybackProject = expandProjectForArrangement(currentProject)
-    const playbackTimeline = buildTempoTimeline(currentProject, totalBeats)
+    const playbackTimeline = buildTempoTimeline(currentProject, playbackTotalBeats)
     playbackTempoTimelineRef.current = playbackTimeline
     playbackStartSecondsRef.current = getSecondsAtBeatFromTimeline(playbackTimeline, safeStartBeat)
     const hasSoloTrack = currentProject.tracks.some((item) => item.solo)
     const playbackEndBeat = keyboardInputEnabled
-      ? totalBeats
+      ? playbackTotalBeats
       : Math.max(safeStartBeat, getPlaybackContentEndBeat(arrangedPlaybackProject))
 
     arrangedPlaybackProject.tracks.forEach((track) => {
       if (track.mute || (hasSoloTrack && !track.solo)) return
 
-      const notes = (arrangedPlaybackProject.notesByTrack[track.id] ?? [])
-        .map((note) => ({
-          ...note,
-          pitch: note.pitch + (note.pitchBend ?? 0),
-          velocity: note.velocity * (note.volume ?? 1) * (note.expression ?? 1) * track.volume,
-        }))
-        .sort((left, right) => left.startBeat - right.startBeat)
+      const notes = getPreparedPlaybackNotes(
+        arrangedPlaybackProject,
+        track,
+        loopState.enabled ? playbackTotalBeats : undefined,
+      )
 
-      if (notes.length === 0) return
+      if (!loopState.enabled && notes.length === 0) return
 
       const instrument = createInstrument(track.instrumentId)
       const hasEffectNotes = notes.some((note) => (
@@ -469,7 +692,13 @@ export function usePlayback({
         notes,
         pan: track.pan ?? 0,
         panner,
-        nextIndex: notes.findIndex((note) => note.startBeat + note.durationBeats > safeStartBeat),
+        nextIndex: loopState.enabled
+          ? 0
+          : notes.findIndex((note) => note.startBeat + note.durationBeats > safeStartBeat),
+        scheduledLoopNoteKeys: loopState.enabled ? new Set<string>() : undefined,
+        sourceInstrumentId: track.instrumentId,
+        sourceNotes: arrangedPlaybackProject.notesByTrack[track.id] ?? [],
+        sourceVolume: track.volume,
       })
     })
 
@@ -487,7 +716,7 @@ export function usePlayback({
       if (track.nextIndex < 0) track.nextIndex = track.notes.length
     })
 
-    if (activePlaybackTracksRef.current.length === 0) {
+    if (!loopState.enabled && activePlaybackTracksRef.current.length === 0) {
       setPlaybackPosition(safeStartBeat)
     }
 
@@ -495,6 +724,16 @@ export function usePlayback({
     playbackStartMsRef.current = performance.now()
     setPlaybackPosition(safeStartBeat)
     setIsPlaying(true)
+    if (loopState.enabled) {
+      scheduleLoopPlaybackWindow(sessionId, playbackTotalBeats)
+      activeIntervalsRef.current.push(
+        window.setInterval(() => {
+          scheduleLoopPlaybackWindow(sessionId, playbackTotalBeats)
+        }, PLAYBACK_SCHEDULER_MS),
+      )
+      return
+    }
+
     schedulePlaybackAudioClips(arrangedPlaybackProject, safeStartBeat, sessionId)
     schedulePlaybackWindow(safeStartBeat)
     activeIntervalsRef.current.push(
