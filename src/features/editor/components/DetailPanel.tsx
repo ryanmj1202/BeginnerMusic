@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   Dispatch,
   PointerEvent as ReactPointerEvent,
   SetStateAction,
@@ -91,7 +91,7 @@ function renderControlArt(key: EditableNoteControlKey, value: number) {
     return (
       <svg className="note-control-art-svg" viewBox="0 0 200 86" aria-hidden="true">
         <path className="note-control-bend-track" d="M30 58c40-46 98 46 140-20" />
-        <text className="note-control-wave" x="85" y="35">↕</text>
+        <text className="note-control-wave" x="85" y="35">{'~'}</text>
         <line className="note-control-bend-track" x1="18" y1="80" x2="182" y2="80" />
         <circle className="note-control-knob" cx={knobX} cy="80" r="6" />
       </svg>
@@ -266,7 +266,7 @@ export function DetailPanel({
   }
 
   return (
-    <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="상세 편집">
+    <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="?곸꽭 ?몄쭛">
       <div className="detail-header">
         <div className="detail-tabs" aria-label="detail tabs">
           {TERMINOLOGY_HELP.map((item) => (
@@ -293,7 +293,7 @@ export function DetailPanel({
         <div className="velocity-lane">
           <div className="tempo-panel" aria-label="tempo panel">
             <label>
-              <span>속도</span>
+              <span>?띾룄</span>
               <button type="button" onPointerDown={() => updateTempo(projectTempo - 5)}>-</button>
               <input
                 aria-label="Tempo"
@@ -352,44 +352,76 @@ export function DetailPanel({
             <div className="event-editor">
               <strong>음표 정보</strong>
               {sortedEditableSelectedNotes.length === 0 ? (
-                <span>선택한 음표 상자 없음</span>
+                <span>선택한 음표가 없습니다.</span>
               ) : (
                 <div className="event-grid">
-                  <span>음높이</span>
-                  <span>시작</span>
-                  <span>길이</span>
-                  <span>세기</span>
                   {sortedEditableSelectedNotes.slice(0, 12).map((note) => (
                     <div className="event-row" key={note.id}>
-                      <input
-                        aria-label="음높이"
-                        onChange={(event) => updateNoteEvent(note.id, { pitch: Number(event.target.value) })}
-                        type="number"
-                        value={note.pitch}
-                      />
-                      <input
-                        aria-label="시작 박자"
-                        onChange={(event) => updateNoteEvent(note.id, { startBeat: Number(event.target.value) })}
-                        step="0.125"
-                        type="number"
-                        value={note.startBeat}
-                      />
-                      <input
-                        aria-label="길이"
-                        onChange={(event) => updateNoteEvent(note.id, { durationBeats: Number(event.target.value) })}
-                        step="0.125"
-                        type="number"
-                        value={note.durationBeats}
-                      />
-                      <input
-                        aria-label="세기"
-                        max="1"
-                        min="0.05"
-                        onChange={(event) => updateNoteEvent(note.id, { velocity: Number(event.target.value) })}
-                        step="0.01"
-                        type="number"
-                        value={note.velocity}
-                      />
+                      <div className="event-card-heading">
+                        <strong>{getPitchName(note.pitch)}</strong>
+                        <span>{note.startBeat}박 시작</span>
+                      </div>
+                      <label className="event-field event-field-wide">
+                        <span>음높이</span>
+                        <input
+                          aria-label="음높이"
+                          max="108"
+                          min="21"
+                          onChange={(event) => updateNoteEvent(note.id, { pitch: Number(event.target.value) })}
+                          type="range"
+                          value={note.pitch}
+                        />
+                        <input
+                          aria-label="음높이 숫자"
+                          max="108"
+                          min="21"
+                          onChange={(event) => updateNoteEvent(note.id, { pitch: Number(event.target.value) })}
+                          type="number"
+                          value={note.pitch}
+                        />
+                      </label>
+                      <label className="event-field">
+                        <span>시작</span>
+                        <input
+                          aria-label="시작 박자"
+                          onChange={(event) => updateNoteEvent(note.id, { startBeat: Number(event.target.value) })}
+                          step="0.125"
+                          type="number"
+                          value={note.startBeat}
+                        />
+                      </label>
+                      <label className="event-field">
+                        <span>길이</span>
+                        <input
+                          aria-label="길이"
+                          min="0.125"
+                          onChange={(event) => updateNoteEvent(note.id, { durationBeats: Number(event.target.value) })}
+                          step="0.125"
+                          type="number"
+                          value={note.durationBeats}
+                        />
+                      </label>
+                      <label className="event-field event-field-wide">
+                        <span>세기</span>
+                        <input
+                          aria-label="세기"
+                          max="1"
+                          min="0.05"
+                          onChange={(event) => updateNoteEvent(note.id, { velocity: Number(event.target.value) })}
+                          step="0.01"
+                          type="range"
+                          value={note.velocity}
+                        />
+                        <input
+                          aria-label="세기 숫자"
+                          max="1"
+                          min="0.05"
+                          onChange={(event) => updateNoteEvent(note.id, { velocity: Number(event.target.value) })}
+                          step="0.01"
+                          type="number"
+                          value={note.velocity}
+                        />
+                      </label>
                     </div>
                   ))}
                 </div>
@@ -401,24 +433,24 @@ export function DetailPanel({
 
       <div className="detail-footer">
         <button
-          aria-label="중지"
+          aria-label="以묒?"
           className="detail-stop-button"
           onPointerDown={resetPlayback}
           type="button"
         >
-          ■
+          ??
         </button>
         <button
-          aria-label={isPlaying ? '일시정지' : '재생'}
+          aria-label={isPlaying ? '?쇱떆?뺤?' : '?ъ깮'}
           className="detail-play-button"
           onPointerDown={togglePlayback}
           type="button"
         >
-          {isPlaying ? '⏸' : '▶'}
+          {isPlaying ? '일시정지' : '재생'}
         </button>
         <div className={metronomeOn ? 'metronome-control is-active' : 'metronome-control'}>
           <button
-            aria-label={metronomeOn ? '메트로놈 끄기' : '메트로놈 켜기'}
+            aria-label={metronomeOn ? '硫뷀듃濡쒕냸 ?꾧린' : '硫뷀듃濡쒕냸 耳쒓린'}
             aria-pressed={metronomeOn}
             className="metronome-toggle"
             onPointerDown={(event) => {
@@ -449,7 +481,7 @@ export function DetailPanel({
             />
           </label>
         </div>
-        <span className="selected-note-summary">{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 상자 없음'}</span>
+        <span className="selected-note-summary">{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '?좏깮???뚰몴 ?곸옄 ?놁쓬'}</span>
       </div>
     </section>
   )

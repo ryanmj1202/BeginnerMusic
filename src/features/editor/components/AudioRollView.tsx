@@ -3,6 +3,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   RefObject,
 } from 'react'
+import { useState } from 'react'
 import type { AudioClip, Track } from '../../../types/music'
 
 const DEFAULT_WAVEFORM = Array.from({ length: 48 }, () => 0.25)
@@ -30,6 +31,40 @@ export function AudioRollView({
   totalBeats,
   visibleBars,
 }: AudioRollViewProps) {
+  const [timelineSeekingPointerId, setTimelineSeekingPointerId] = useState<number | null>(null)
+
+  function seekTimelineFromPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    seekPlaybackFromTimeline({
+      button: 0,
+      clientX: event.clientX,
+      currentTarget: event.currentTarget,
+      preventDefault: event.preventDefault.bind(event),
+    } as ReactPointerEvent<HTMLDivElement>)
+  }
+
+  function beginTimelineSeek(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+
+    setTimelineSeekingPointerId(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    seekPlaybackFromTimeline(event)
+  }
+
+  function updateTimelineSeek(event: ReactPointerEvent<HTMLDivElement>) {
+    if (timelineSeekingPointerId !== event.pointerId) return
+
+    seekTimelineFromPointerMove(event)
+  }
+
+  function finishTimelineSeek(event: ReactPointerEvent<HTMLDivElement>) {
+    if (timelineSeekingPointerId !== event.pointerId) return
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setTimelineSeekingPointerId(null)
+  }
+
   return (
     <div
       className="piano-roll audio-roll"
@@ -40,7 +75,11 @@ export function AudioRollView({
       <div
         className="measure-row"
         style={rollTimelineStyle}
-        onPointerDown={seekPlaybackFromTimeline}
+        onPointerDown={beginTimelineSeek}
+        onPointerMove={updateTimelineSeek}
+        onPointerUp={finishTimelineSeek}
+        onPointerCancel={finishTimelineSeek}
+        onLostPointerCapture={() => setTimelineSeekingPointerId(null)}
       >
         <span className="timeline-seek-fill" aria-hidden="true" />
         <span className="timeline-seek-handle" aria-hidden="true" />

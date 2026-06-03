@@ -8,6 +8,11 @@
   overflow: hidden;
 }
 
+.piano-roll-area > :only-child {
+  grid-row: 1 / -1;
+  min-height: 0;
+}
+
 .roll-header {
   display: flex;
   align-items: center;

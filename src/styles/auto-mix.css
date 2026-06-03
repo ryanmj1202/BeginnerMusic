@@ -1,9 +1,8 @@
 ﻿.auto-mix-panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: block;
   height: 100%;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
   background:
     radial-gradient(circle at 12% 0%, rgba(70, 91, 147, 0.13), transparent 30%),
     linear-gradient(135deg, #181d24, #1f222b 58%, #171b22);
@@ -63,12 +62,14 @@
 
 .auto-mix-empty,
 .auto-mix-section-list {
-  margin: 1.4rem;
+  margin: 0;
+  padding: 1.4rem;
 }
 
 .auto-mix-section-list {
   display: grid;
   gap: 1.9rem;
+  padding-bottom: 4rem;
 }
 
 .auto-mix-section-card {
@@ -484,5 +485,46 @@
 
 .audio-track-empty strong {
   color: #ffffff;
+}
+
+@media (max-height: 760px) {
+  .auto-mix-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .auto-mix-empty,
+  .auto-mix-section-list {
+    padding: 1rem;
+  }
+
+  .auto-mix-section-list {
+    gap: 1.2rem;
+    padding-bottom: 2rem;
+  }
+
+  .auto-mix-easy-controls {
+    row-gap: 0.4rem;
+  }
+
+  .auto-mix-control-group label {
+    grid-template-rows: auto 48px auto;
+    min-height: 108px;
+    padding: 0.52rem 0.65rem;
+  }
+
+  .auto-mix-option-visual {
+    height: 48px;
+  }
+
+  .auto-mix-priority-card {
+    height: 116px;
+    padding: 0.58rem;
+  }
+}
+
+@media (max-width: 1180px) {
+  .auto-mix-easy-controls {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
 }
 

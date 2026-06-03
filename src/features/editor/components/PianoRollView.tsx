@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
   CSSProperties,
   Dispatch,
@@ -144,6 +144,39 @@ export function PianoRollView({
   zoomRoll,
 }: PianoRollViewProps) {
   const zoomAnchorRef = useRef<{ gridRatio: number, pointerX: number } | null>(null)
+  const [timelineSeekingPointerId, setTimelineSeekingPointerId] = useState<number | null>(null)
+
+  function seekTimelineFromPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    seekPlaybackFromTimeline({
+      button: 0,
+      clientX: event.clientX,
+      currentTarget: event.currentTarget,
+      preventDefault: event.preventDefault.bind(event),
+    } as ReactPointerEvent<HTMLDivElement>)
+  }
+
+  function beginTimelineSeek(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+
+    setTimelineSeekingPointerId(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    seekPlaybackFromTimeline(event)
+  }
+
+  function updateTimelineSeek(event: ReactPointerEvent<HTMLDivElement>) {
+    if (timelineSeekingPointerId !== event.pointerId) return
+
+    seekTimelineFromPointerMove(event)
+  }
+
+  function finishTimelineSeek(event: ReactPointerEvent<HTMLDivElement>) {
+    if (timelineSeekingPointerId !== event.pointerId) return
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    setTimelineSeekingPointerId(null)
+  }
 
   useLayoutEffect(() => {
     const anchor = zoomAnchorRef.current
@@ -225,7 +258,11 @@ export function PianoRollView({
           <div
             className="measure-row"
             style={rollTimelineStyle}
-            onPointerDown={seekPlaybackFromTimeline}
+            onPointerDown={beginTimelineSeek}
+            onPointerMove={updateTimelineSeek}
+            onPointerUp={finishTimelineSeek}
+            onPointerCancel={finishTimelineSeek}
+            onLostPointerCapture={() => setTimelineSeekingPointerId(null)}
           >
             <span className="timeline-seek-fill" aria-hidden="true" />
             <span className="timeline-seek-handle" aria-hidden="true" />
