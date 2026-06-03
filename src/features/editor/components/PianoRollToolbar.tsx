@@ -112,7 +112,7 @@ export function PianoRollToolbar({
             className={workstationLoop.enabled ? 'is-active' : ''}
             onPointerDown={() => setWorkstationLoopSettings({ enabled: !workstationLoop.enabled })}
           >
-            Loop
+            반복
           </button>
           <select
             value={workstationLoop.lengthBeats}
@@ -120,7 +120,7 @@ export function PianoRollToolbar({
           >
             {WORKSTATION_LOOP_LENGTH_OPTIONS.map((lengthBeats) => (
               <option key={lengthBeats} value={lengthBeats}>
-                {lengthBeats / 4} bar
+                {lengthBeats / 4}마디
               </option>
             ))}
           </select>

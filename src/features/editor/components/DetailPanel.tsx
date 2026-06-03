@@ -266,7 +266,7 @@ export function DetailPanel({
   }
 
   return (
-    <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="?곸꽭 ?몄쭛">
+    <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="상세 편집">
       <div className="detail-header">
         <div className="detail-tabs" aria-label="detail tabs">
           {TERMINOLOGY_HELP.map((item) => (
@@ -291,36 +291,6 @@ export function DetailPanel({
 
       {detailPanelOpen ? (
         <div className="velocity-lane">
-          <div className="tempo-panel" aria-label="tempo panel">
-            <label>
-              <span>?띾룄</span>
-              <button type="button" onPointerDown={() => updateTempo(projectTempo - 5)}>-</button>
-              <input
-                aria-label="Tempo"
-                inputMode="numeric"
-                onBlur={commitTempoInput}
-                onChange={(event) => changeTempoInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur()
-                }}
-                type="text"
-                value={tempoInput}
-              />
-              <select
-                aria-label="Tempo preset"
-                onChange={(event) => updateTempo(Number(event.target.value))}
-                value={projectTempo}
-              >
-                {TEMPO_PRESETS.map((preset) => (
-                  <option key={preset} value={preset}>
-                    {preset}
-                  </option>
-                ))}
-              </select>
-              <button type="button" onPointerDown={() => updateTempo(projectTempo + 5)}>+</button>
-            </label>
-          </div>
-
           <div className="control-bundle">
             {activeNoteControl && range ? (
               <div className="note-control-panel">
@@ -433,24 +403,24 @@ export function DetailPanel({
 
       <div className="detail-footer">
         <button
-          aria-label="以묒?"
+          aria-label="중지"
           className="detail-stop-button"
           onPointerDown={resetPlayback}
           type="button"
         >
-          ??
+          ■
         </button>
         <button
-          aria-label={isPlaying ? '?쇱떆?뺤?' : '?ъ깮'}
+          aria-label={isPlaying ? '일시정지' : '재생'}
           className="detail-play-button"
           onPointerDown={togglePlayback}
           type="button"
         >
-          {isPlaying ? '일시정지' : '재생'}
+          {isPlaying ? '⏸' : '▶'}
         </button>
         <div className={metronomeOn ? 'metronome-control is-active' : 'metronome-control'}>
           <button
-            aria-label={metronomeOn ? '硫뷀듃濡쒕냸 ?꾧린' : '硫뷀듃濡쒕냸 耳쒓린'}
+            aria-label={metronomeOn ? '메트로놈 끄기' : '메트로놈 켜기'}
             aria-pressed={metronomeOn}
             className="metronome-toggle"
             onPointerDown={(event) => {
@@ -481,7 +451,7 @@ export function DetailPanel({
             />
           </label>
         </div>
-        <span className="selected-note-summary">{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '?좏깮???뚰몴 ?곸옄 ?놁쓬'}</span>
+        <span className="selected-note-summary">{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 상자 없음'}</span>
       </div>
     </section>
   )
