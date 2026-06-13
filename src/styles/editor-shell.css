@@ -1,18 +1,18 @@
 ﻿.editor-shell {
   position: relative;
   display: grid;
-  grid-template-columns: var(--track-panel-width, 240px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) var(--detail-panel-height, 180px);
+  grid-template-columns: var(--track-panel-width, 240px) minmax(0, 1fr) var(--detail-panel-width, 320px);
+  grid-template-rows: minmax(0, 1fr) 58px;
   grid-template-areas:
-    "tracks roll"
-    "details details";
+    "tracks roll details"
+    "transport transport transport";
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
 .editor-shell.is-track-panel-closed {
-  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-columns: 0 minmax(0, 1fr) var(--detail-panel-width, 320px);
 }
 
 .busy-overlay {

@@ -22,18 +22,18 @@
 
 .panel-resizer-vertical {
   top: 0;
-  bottom: var(--detail-panel-height, 180px);
+  bottom: 58px;
   left: calc(var(--track-panel-width, 240px) - 3px);
   width: 6px;
   cursor: ew-resize;
 }
 
-.panel-resizer-horizontal {
-  left: 0;
-  right: 0;
-  top: calc(100% - var(--detail-panel-height, 180px) - 3px);
-  height: 6px;
-  cursor: ns-resize;
+.panel-resizer-detail {
+  top: 0;
+  right: calc(var(--detail-panel-width, 320px) - 3px);
+  bottom: 58px;
+  width: 6px;
+  cursor: ew-resize;
 }
 
 .track-toolbar {

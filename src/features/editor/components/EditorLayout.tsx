@@ -84,8 +84,8 @@ export function EditorLayout({
 }: EditorLayoutProps) {
   const [trackPanelOpen, setTrackPanelOpen] = useState(true)
   const [trackPanelWidth, setTrackPanelWidth] = useState(240)
-  const [detailPanelHeight, setDetailPanelHeight] = useState(180)
-  const detailPanelLayoutHeight = detailPanelProps.detailPanelOpen ? detailPanelHeight : 88
+  const [detailPanelWidth, setDetailPanelWidth] = useState(320)
+  const detailPanelLayoutWidth = detailPanelProps.detailPanelOpen ? detailPanelWidth : 132
 
   function beginTrackPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault()
@@ -108,13 +108,13 @@ export function EditorLayout({
 
   function beginDetailPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault()
-    const applyHeight = (clientY: number) => {
-      const height = window.innerHeight - clientY
-      setDetailPanelHeight(Math.max(120, Math.min(360, Math.round(height))))
+    const applyWidth = (clientX: number) => {
+      const width = window.innerWidth - clientX
+      setDetailPanelWidth(Math.max(0, Math.min(100, Math.round(width))))
     }
-    applyHeight(event.clientY)
+    applyWidth(event.clientX)
     const handlePointerMove = (moveEvent: PointerEvent) => {
-      applyHeight(moveEvent.clientY)
+      applyWidth(moveEvent.clientX)
     }
     const stop = () => {
       window.removeEventListener('pointermove', handlePointerMove)
@@ -127,7 +127,7 @@ export function EditorLayout({
   }
 
   const editorShellStyle = {
-    '--detail-panel-height': `${detailPanelLayoutHeight}px`,
+    '--detail-panel-width': `${detailPanelLayoutWidth}px`,
     '--track-panel-width': trackPanelOpen ? `${trackPanelWidth}px` : '0px',
   } as CSSProperties
 
@@ -204,15 +204,13 @@ export function EditorLayout({
           ) : null}
         </section>
         <div
-          className="panel-resizer panel-resizer-horizontal"
+          className="panel-resizer panel-resizer-detail"
           role="separator"
-          aria-label="하단 창 높이 조절"
-          aria-orientation="horizontal"
+          aria-label="상세 편집 창 크기 조절"
+          aria-orientation="vertical"
           onPointerDown={beginDetailPanelResize}
         />
-        <div className="bottom-panel-shell">
-          <DetailPanel {...detailPanelProps} />
-        </div>
+        <DetailPanel {...detailPanelProps} />
       </main>
     </div>
   )

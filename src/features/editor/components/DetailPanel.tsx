@@ -360,6 +360,7 @@ export function DetailPanel({
   }
 
   return (
+    <>
     <section className={detailPanelOpen ? 'detail-panel' : 'detail-panel is-collapsed'} aria-label="상세 편집">
       <div className="detail-header">
         <div className="detail-tabs" aria-label="detail tabs">
@@ -374,13 +375,6 @@ export function DetailPanel({
             </button>
           ))}
         </div>
-        <button
-          className="detail-toggle-button"
-          onPointerDown={() => setDetailPanelOpen((current) => !current)}
-          type="button"
-        >
-          {detailPanelOpen ? '접기' : '펼치기'}
-        </button>
       </div>
 
       {detailPanelOpen ? (
@@ -545,7 +539,9 @@ export function DetailPanel({
         </div>
       ) : null}
 
-      <div className="detail-footer">
+    </section>
+
+    <div className="detail-footer">
         <button
           aria-label="중지"
           className="detail-stop-button"
@@ -596,7 +592,7 @@ export function DetailPanel({
           </label>
         </div>
         <span className="selected-note-summary">{selectedNote ? `${getPitchName(selectedNote.pitch)} / ${Math.round(selectedNote.velocity * 100)}` : '선택한 음표 상자 없음'}</span>
-      </div>
-    </section>
+    </div>
+    </>
   )
 }

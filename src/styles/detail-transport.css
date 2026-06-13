@@ -1,11 +1,5 @@
-﻿.bottom-panel-shell {
-  grid-area: details;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  border-top: 1px solid #303844;
-  background: #171a1f;
+.bottom-panel-shell {
+  display: contents;
 }
 
 .bottom-panel-tabs {
@@ -13,7 +7,7 @@
   align-items: stretch;
   flex-wrap: wrap;
   gap: 0.2rem;
-  padding-left: var(--roll-key-width, 4rem);
+  padding-left: 0.5rem;
   border-bottom: 1px solid #303844;
   background: #20242d;
 }
@@ -38,11 +32,14 @@
 .bottom-panel-shell .detail-panel,
 
 .detail-panel {
+  grid-area: details;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: #171a1f;
+  overflow: hidden;
+  border-left: 1px solid #303844;
 }
 
 .detail-panel.is-collapsed {
@@ -51,30 +48,31 @@
 
 .detail-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   border-bottom: 1px solid #303844;
   background: #20242d;
 }
 
 .detail-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr;
   align-items: stretch;
-  flex-wrap: wrap;
   gap: 0.2rem;
-  padding-left: var(--roll-key-width, 4rem);
+  padding: 0.45rem;
 }
 
 .detail-tabs button {
   display: grid;
   align-content: center;
-  min-height: 2.125rem;
+  min-height: 1.9rem;
   border: 0;
-  border-radius: 0;
+  border-radius: 4px;
   background: transparent;
   color: #8f9bad;
-  padding: 0 0.8rem;
+  padding: 0 0.55rem;
   font-size: 0.78rem;
+  text-align: center;
 }
 
 .detail-tabs button span {
@@ -82,13 +80,14 @@
 }
 
 .detail-tabs button.is-active {
+  background: #252d3d;
   color: #ffffff;
-  box-shadow: inset 0 -2px 0 #5365d9;
+  box-shadow: inset 0 0 0 1px #5365d9;
 }
 
 .detail-toggle-button {
   border: 0;
-  border-left: 1px solid #303844;
+  border-top: 1px solid #303844;
   background: transparent;
   color: #b8c3d4;
   font-size: 0.72rem;
@@ -102,13 +101,12 @@
 
 .velocity-lane {
   position: relative;
-  display: grid;
-  align-items: center;
+  display: block;
   min-width: 0;
   margin-left: 0;
-  border-bottom: 1px solid #303844;
+  border-bottom: 0;
   background: #171a1f;
-  overflow: hidden;
+  overflow: auto;
   contain: layout paint;
   scrollbar-color: #4c5870 #171b23;
   scrollbar-width: thin;
@@ -217,7 +215,7 @@
 .note-control-panel {
   display: grid;
   gap: 0.65rem;
-  padding: 0.75rem 1rem 0.9rem;
+  padding: 0.75rem;
 }
 
 .control-bundle {
@@ -277,8 +275,9 @@
 
 .note-control-stage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.55rem;
-  padding: 0.9rem;
+  padding: 0.7rem;
   border: 1px solid #2f3848;
   border-radius: 10px;
   background: #10151d;
@@ -290,19 +289,23 @@
 
 .note-control-slider-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1.35rem 2rem 1.35rem;
+  grid-template-columns: 2rem;
+  grid-template-rows: minmax(150px, 1fr) 1.65rem 2rem 1.65rem;
   gap: 0.45rem;
   align-items: center;
+  justify-items: center;
 }
 
 .note-control-stage input[type='range'] {
-  width: 100%;
-  height: 24px;
+  width: 26px;
+  height: 150px;
   padding: 0;
   accent-color: #5365d9;
   cursor: pointer;
   pointer-events: auto;
-  touch-action: pan-x;
+  touch-action: pan-y;
+  writing-mode: vertical-lr;
+  direction: rtl;
 }
 
 .note-control-stage:hover {
@@ -312,7 +315,7 @@
 
 .note-control-art-svg {
   width: 100%;
-  height: 86px;
+  height: 150px;
 }
 
 .note-control-headband,
@@ -442,10 +445,11 @@
 .event-editor {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: 0.8rem;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
   align-items: start;
-  margin-top: 0.55rem;
+  margin-top: 0;
+  padding: 0 0.75rem 0.75rem;
 }
 
 .event-editor > strong {
@@ -460,15 +464,15 @@
 
 .event-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: 1fr;
   gap: 0.55rem;
-  max-height: 128px;
+  max-height: none;
   overflow: auto;
 }
 
 .event-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 0.45rem;
   border: 1px solid #303746;
   border-radius: 6px;
@@ -530,6 +534,7 @@
 }
 
 .detail-footer {
+  grid-area: transport;
   display: flex;
   align-items: center;
   flex-wrap: wrap;

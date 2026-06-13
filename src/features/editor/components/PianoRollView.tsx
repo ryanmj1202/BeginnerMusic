@@ -199,14 +199,22 @@ export function PianoRollView({
   }, [pianoRollRef, rollZoom])
 
   useEffect(() => {
-    function handleRollZoomWheel(event: WheelEvent) {
-      if (!event.ctrlKey && !event.metaKey) return
-
+    function handleRollWheel(event: WheelEvent) {
       const target = event.target
       if (!(target instanceof Element) || !target.closest('.piano-roll')) return
 
       const roll = pianoRollRef.current
       if (!roll) return
+
+      if (!event.ctrlKey && !event.metaKey) {
+        const shouldPanTimeline = event.shiftKey || target.closest('.measure-row') || Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        if (!shouldPanTimeline) return
+
+        event.preventDefault()
+        event.stopPropagation()
+        roll.scrollLeft += event.deltaX || event.deltaY
+        return
+      }
 
       const rect = roll.getBoundingClientRect()
       const pointerX = event.clientX - rect.left
@@ -220,8 +228,8 @@ export function PianoRollView({
       zoomRoll(event.deltaY > 0 ? -1 : 1)
     }
 
-    window.addEventListener('wheel', handleRollZoomWheel, { capture: true, passive: false })
-    return () => window.removeEventListener('wheel', handleRollZoomWheel, { capture: true })
+    window.addEventListener('wheel', handleRollWheel, { capture: true, passive: false })
+    return () => window.removeEventListener('wheel', handleRollWheel, { capture: true })
   }, [zoomRoll])
 
   return (
