@@ -27,7 +27,9 @@ import {
 } from '../helpers'
 import type {
   ActivePlaybackTrack,
+  EditableNoteControlKey,
 } from '../types'
+import { getAutomatedNoteControlValue, getNoteControlAutomation } from '../utils/noteControlUtils'
 import { getMinimumPlaybackDrumSeconds } from '../utils/playbackDuration'
 import type { UsePlaybackOptions } from './playbackTypes'
 
@@ -98,8 +100,7 @@ export function usePlayback({
           ...note,
           durationBeats,
           startBeat,
-          pitch: note.pitch + (note.pitchBend ?? 0),
-          velocity: note.velocity * (note.volume ?? 1) * (note.expression ?? 1) * track.volume,
+          velocity: note.velocity * track.volume,
         }
       })
       .filter((note) => note.durationBeats > 0)
@@ -272,11 +273,69 @@ export function usePlayback({
       0,
       (getSecondsAtBeatFromTimeline(timeline, note.startBeat) - getSecondsAtBeatFromTimeline(timeline, currentBeat)) * 1000,
     )
-    const bentPitch = note.pitch + (note.pitchBend ?? 0)
+    const getNoteValue = (key: EditableNoteControlKey) =>
+      getAutomatedNoteControlValue(note, key, offsetBeat)
+    const getControlSchedule = (key: EditableNoteControlKey) => [
+      {
+        beatOffset: offsetBeat,
+        value: getNoteValue(key),
+      },
+      ...getNoteControlAutomation(note, key)
+        .filter((point) => point.beatOffset > offsetBeat && point.beatOffset < note.durationBeats),
+    ]
+    const hasControlGlide = (schedule: { value: number }[]) => schedule.some((point, index) => (
+      index > 0 && Math.abs(point.value - schedule[index - 1].value) > 0.001
+    ))
+    const pitchBendSchedule = [
+      {
+        beatOffset: offsetBeat,
+        value: getNoteValue('pitchBend'),
+      },
+      ...getNoteControlAutomation(note, 'pitchBend')
+        .filter((point) => point.beatOffset > offsetBeat && point.beatOffset < note.durationBeats),
+    ]
+    const hasPitchGlide = !track.isDrum && pitchBendSchedule.some((point, index) => (
+      index > 0 && Math.abs(point.value - pitchBendSchedule[index - 1].value) > 0.001
+    ))
+    const panSchedule = getControlSchedule('pan')
+    const hasPanGlide = hasControlGlide(panSchedule)
+    const modulationSchedule = getControlSchedule('modulation')
+    const hasModulationGlide = !track.isDrum && hasControlGlide(modulationSchedule)
+    const reverbSchedule = getControlSchedule('reverb')
+    const hasReverbGlide = !track.isDrum && hasControlGlide(reverbSchedule)
+    const hasVelocityAutomation = getNoteControlAutomation(note, 'velocity').length > 0
+    const getVelocityValue = (beatOffset: number) => {
+      const value = getAutomatedNoteControlValue(note, 'velocity', beatOffset)
+      return hasVelocityAutomation ? value * (track.sourceVolume ?? 1) : value
+    }
+    const gainSchedule = [
+      {
+        beatOffset: offsetBeat,
+        value: getVelocityValue(offsetBeat) * getNoteValue('volume') * getNoteValue('expression'),
+      },
+      ...[
+        ...getNoteControlAutomation(note, 'velocity'),
+        ...getNoteControlAutomation(note, 'volume'),
+        ...getNoteControlAutomation(note, 'expression'),
+      ]
+        .filter((point) => point.beatOffset > offsetBeat && point.beatOffset < note.durationBeats)
+        .map((point) => ({
+          beatOffset: point.beatOffset,
+          value:
+            getVelocityValue(point.beatOffset) *
+            getAutomatedNoteControlValue(note, 'volume', point.beatOffset) *
+            getAutomatedNoteControlValue(note, 'expression', point.beatOffset),
+        }))
+        .sort((left, right) => left.beatOffset - right.beatOffset),
+    ]
+    const hasGainGlide = gainSchedule.some((point, index) => (
+      index > 0 && Math.abs(point.value - gainSchedule[index - 1].value) > 0.001
+    ))
+    const bentPitch = note.pitch + getNoteValue('pitchBend')
     const noteInput = track.instrument.expectsMidi
-      ? bentPitch
-      : Tone.Frequency(bentPitch, 'midi').toFrequency()
-    const notePan = Math.max(-1, Math.min(1, note.pan ?? 0))
+      ? (hasPitchGlide ? note.pitch : bentPitch)
+      : Tone.Frequency(hasPitchGlide ? note.pitch : bentPitch, 'midi').toFrequency()
+    const notePan = Math.max(-1, Math.min(1, panSchedule[0].value))
     const routedPan = Math.max(-1, Math.min(1, (track.pan ?? 0) + notePan))
     const notePitch = note.pitch
     setManagedPlaybackTimeout(() => {
@@ -286,27 +345,41 @@ export function usePlayback({
       const routedDuration = track.isDrum
         ? getMinimumPlaybackDrumSeconds(note.pitch, remainingDurationSeconds)
         : remainingDurationSeconds
-      const noteModulation = track.isDrum ? 0 : Math.max(0, Math.min(1, note.modulation ?? 0))
-      const noteReverb = track.isDrum ? 0 : Math.max(0, Math.min(1, note.reverb ?? 0))
-      const needsRouting = Math.abs(notePan) > 0.01 || noteModulation > 0.01 || noteReverb > 0.01
+      const noteModulation = track.isDrum ? 0 : Math.max(0, Math.min(1, modulationSchedule[0].value))
+      const noteReverb = track.isDrum ? 0 : Math.max(0, Math.min(1, reverbSchedule[0].value))
+      const noteVelocity = Math.max(0.001, hasGainGlide ? 1 : gainSchedule[0].value)
+      const needsRouting =
+        hasPitchGlide ||
+        hasGainGlide ||
+        hasPanGlide ||
+        hasModulationGlide ||
+        hasReverbGlide ||
+        Math.abs(notePan) > 0.01 ||
+        noteModulation > 0.01 ||
+        noteReverb > 0.01
       if (!needsRouting) {
         track.instrument.triggerAttackRelease(
           noteInput,
           routedDuration,
           Tone.now(),
-          note.velocity,
+          noteVelocity,
         )
         return
       }
 
+      const gain = hasGainGlide ? new Tone.Gain(Math.max(0.0001, gainSchedule[0].value)).toDestination() : null
       const panner =
-        Math.abs(notePan) > 0.01
-          ? new Tone.Panner(routedPan).toDestination()
+        hasPanGlide || Math.abs(notePan) > 0.01
+          ? new Tone.Panner(routedPan)
           : null
-      const vibrato = noteModulation > 0.01
+      panner?.connect(gain ?? Tone.getDestination())
+      const vibrato = hasModulationGlide || noteModulation > 0.01
         ? new Tone.Vibrato(6.8, Math.min(0.18, noteModulation * 0.18))
         : null
-      const echo = noteReverb > 0.01
+      const pitchShift = hasPitchGlide
+        ? new Tone.PitchShift({ pitch: pitchBendSchedule[0].value, windowSize: 0.04 })
+        : null
+      const echo = hasReverbGlide || noteReverb > 0.01
         ? new Tone.FeedbackDelay({
           delayTime: 0.06 + noteReverb * 0.16,
           feedback: Math.min(0.62, 0.16 + noteReverb * 0.46),
@@ -317,6 +390,8 @@ export function usePlayback({
       void waitForInstrumentReady(noteInstrument).then(() => {
         if (sessionId !== playbackSessionRef.current) {
           panner?.dispose()
+          gain?.dispose()
+          pitchShift?.dispose()
           vibrato?.dispose()
           echo?.dispose()
           noteInstrument.dispose()
@@ -327,50 +402,118 @@ export function usePlayback({
           vibrato.wet.value = Math.min(0.55, 0.18 + noteModulation * 0.37)
         }
 
+        const firstEffect = pitchShift ?? vibrato ?? echo ?? panner ?? gain
+        if (pitchShift) {
+          pitchShift.connect(vibrato ?? echo ?? panner ?? gain ?? Tone.getDestination())
+        }
+
         if (vibrato && echo && panner) {
           echo.connect(panner)
           vibrato.connect(echo)
-          noteInstrument.disconnect?.()
-          noteInstrument.connect?.(vibrato)
         } else if (vibrato && echo) {
-          echo.toDestination()
+          echo.connect(gain ?? Tone.getDestination())
           vibrato.connect(echo)
-          noteInstrument.disconnect?.()
-          noteInstrument.connect?.(vibrato)
         } else if (vibrato && panner) {
           vibrato.connect(panner)
-          noteInstrument.disconnect?.()
-          noteInstrument.connect?.(vibrato)
         } else if (vibrato) {
-          vibrato.toDestination()
-          noteInstrument.disconnect?.()
-          noteInstrument.connect?.(vibrato)
+          vibrato.connect(gain ?? Tone.getDestination())
         } else if (echo && panner) {
           echo.connect(panner)
-          noteInstrument.disconnect?.()
-          noteInstrument.connect?.(echo)
         } else if (echo) {
-          echo.toDestination()
+          echo.connect(gain ?? Tone.getDestination())
+        }
+
+        if (firstEffect) {
           noteInstrument.disconnect?.()
-          noteInstrument.connect?.(echo)
-        } else if (panner) {
-          noteInstrument.disconnect?.()
-          noteInstrument.connect?.(panner)
+          noteInstrument.connect?.(firstEffect)
         }
 
         const now = Tone.now()
+        const getPointTime = (beatOffset: number) => now + getSecondsBetweenBeatsFromTimeline(
+          timeline,
+          playbackStartBeat,
+          note.startBeat + beatOffset,
+        )
+        const rampNumberParam = (
+          param: { linearRampToValueAtTime: (value: number, time: number) => unknown },
+          schedule: { beatOffset: number; value: number }[],
+          mapValue: (value: number) => number,
+        ) => {
+          schedule.slice(1).forEach((point) => {
+            param.linearRampToValueAtTime(mapValue(point.value), getPointTime(point.beatOffset))
+          })
+        }
+        if (hasPitchGlide) {
+          const pitchTimeouts = new Set<number>()
+          let previousPoint = pitchBendSchedule[0]
+          pitchBendSchedule.slice(1).forEach((point) => {
+            const startMs = Math.max(0, (getPointTime(previousPoint.beatOffset) - now) * 1000)
+            const endMs = Math.max(startMs, (getPointTime(point.beatOffset) - now) * 1000)
+            const durationMs = Math.max(1, endMs - startMs)
+            const steps = Math.max(8, Math.min(48, Math.round(durationMs / 16)))
+            for (let index = 1; index <= steps; index += 1) {
+              const ratio = index / steps
+              const value = previousPoint.value + (point.value - previousPoint.value) * ratio
+              const timeoutId = window.setTimeout(() => {
+                pitchTimeouts.delete(timeoutId)
+                if (sessionId === playbackSessionRef.current && pitchShift) pitchShift.pitch = value
+              }, startMs + durationMs * ratio)
+              pitchTimeouts.add(timeoutId)
+            }
+            previousPoint = point
+          })
+          window.setTimeout(() => pitchTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId)), routedDuration * 1000 + 100)
+        }
+        if (hasPanGlide && panner) {
+          rampNumberParam(panner.pan, panSchedule, (value) =>
+            Math.max(-1, Math.min(1, (track.pan ?? 0) + value)),
+          )
+        }
+        if (hasModulationGlide && vibrato) {
+          rampNumberParam(vibrato.depth, modulationSchedule, (value) =>
+            Math.min(0.18, Math.max(0, value) * 0.18),
+          )
+          rampNumberParam(vibrato.wet, modulationSchedule, (value) =>
+            Math.min(0.55, 0.18 + Math.max(0, value) * 0.37),
+          )
+        }
+        if (hasReverbGlide && echo) {
+          rampNumberParam(echo.wet, reverbSchedule, (value) =>
+            Math.min(0.58, 0.18 + Math.max(0, value) * 0.4),
+          )
+          rampNumberParam(echo.feedback, reverbSchedule, (value) =>
+            Math.min(0.62, 0.16 + Math.max(0, value) * 0.46),
+          )
+          rampNumberParam(echo.delayTime, reverbSchedule, (value) =>
+            0.06 + Math.max(0, value) * 0.16,
+          )
+        }
+        if (hasGainGlide && gain) {
+          let previousTime = now
+          gainSchedule.slice(1).forEach((point) => {
+            const pointTime = now + getSecondsBetweenBeatsFromTimeline(
+              timeline,
+              playbackStartBeat,
+              note.startBeat + point.beatOffset,
+            )
+            gain.gain.linearRampToValueAtTime(Math.max(0.0001, point.value), previousTime + Math.max(0.001, pointTime - previousTime))
+            previousTime = pointTime
+          })
+        }
         noteInstrument.triggerAttackRelease(
           noteInput,
           routedDuration,
           now,
-          note.velocity,
+          noteVelocity,
         )
         window.setTimeout(() => {
           noteInstrument.triggerRelease(undefined)
           noteInstrument.dispose()
           vibrato?.dispose()
           echo?.dispose()
+          pitchShift?.dispose()
           panner?.dispose()
+          gain?.dispose()
         }, Math.max(160, routedDuration * 1000 + 450 + noteReverb * 1800))
       })
     }, delayMs)

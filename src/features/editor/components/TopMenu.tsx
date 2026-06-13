@@ -18,6 +18,7 @@ type TopMenuProps = {
   importAudioFiles: (event: ChangeEvent<HTMLInputElement>) => void
   isExportingMp3: boolean
   loadProjectFile: (event: ChangeEvent<HTMLInputElement>) => void
+  openCollaborationDialog: () => void
   openProjectFile: () => void
   pasteSelectedNotes: () => void
   projectTitle: string
@@ -49,6 +50,7 @@ export function TopMenu({
   importAudioFiles,
   isExportingMp3,
   loadProjectFile,
+  openCollaborationDialog,
   openProjectFile,
   pasteSelectedNotes,
   projectTitle,
@@ -129,6 +131,12 @@ export function TopMenu({
         value={projectTitle}
         onChange={(event) => updateProjectTitle(event.target.value)}
       />
+
+      <div className="top-actions" aria-label="협업 메뉴">
+        <button type="button" className="collaboration-top-button" onPointerDown={openCollaborationDialog}>
+          협업하기
+        </button>
+      </div>
 
       <input
         ref={fileInputRef}

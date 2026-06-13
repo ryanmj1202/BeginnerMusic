@@ -97,7 +97,7 @@ export function useNoteEditing({
     return getSelectedNoteValueFromNotes(editableSelectedNotes, key as any)
   }
 
-  function updateSingleNoteControlValue(noteId: string, key: string, value: number) {
+  function updateSingleNoteControlValue(noteId: string, key: string, value: number, automationBeatOffset?: number) {
     const clamped = clampNoteControlValue(key as any, value)
     setProject((current: any) => {
       let changed = false
@@ -105,6 +105,47 @@ export function useNoteEditing({
         trackId,
         notes.map((note: any) => {
           if (note.id !== noteId) return note
+          if (automationBeatOffset !== undefined) {
+            if (Number.isNaN(clamped)) {
+              if (!note.controlAutomation?.[key]?.length) return note
+              const beatOffset = Math.max(0, Math.min(note.durationBeats, automationBeatOffset))
+              const nextPoints = [...(note.controlAutomation[key] ?? [])]
+                .filter((point: any) => Math.abs(point.beatOffset - beatOffset) > 0.0001)
+              if (nextPoints.length === note.controlAutomation[key].length) return note
+
+              changed = true
+              const nextAutomation = { ...(note.controlAutomation ?? {}) }
+              if (nextPoints.length === 0) {
+                delete nextAutomation[key]
+              } else {
+                nextAutomation[key] = nextPoints
+              }
+              return { ...note, controlAutomation: nextAutomation }
+            }
+
+            const beatOffset = Math.max(0, Math.min(note.durationBeats, automationBeatOffset))
+            const previousPoints = [...(note.controlAutomation?.[key] ?? [])]
+              .filter((point: any) => Math.abs(point.beatOffset - beatOffset) > 0.0001)
+            const neighbor = [...previousPoints]
+              .sort((left: any, right: any) =>
+                Math.abs(left.beatOffset - beatOffset) - Math.abs(right.beatOffset - beatOffset),
+              )[0]
+            if (neighbor && nearlyEqual(neighbor.value, clamped)) return note
+
+            changed = true
+            const initialPoint = previousPoints.length === 0 && beatOffset > 0.0001
+              ? [{ beatOffset: 0, value: getNoteControlValue(note, key as any) }]
+              : []
+            const nextPoints = [...initialPoint, ...previousPoints, { beatOffset, value: clamped }]
+              .sort((left: any, right: any) => left.beatOffset - right.beatOffset)
+            return {
+              ...note,
+              controlAutomation: {
+                ...(note.controlAutomation ?? {}),
+                [key]: nextPoints,
+              },
+            }
+          }
           const currentValue = getNoteControlValue(note, key as any)
           if (nearlyEqual(currentValue, clamped)) return note
           changed = true

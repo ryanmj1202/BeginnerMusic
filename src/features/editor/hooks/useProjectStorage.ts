@@ -9,7 +9,10 @@ import {
   STORAGE_KEY,
 } from '../constants'
 import type { Project } from '../../../types/music'
-import type { NoteDrag } from '../types'
+import type { KeyboardRecordingNote, NoteDrag } from '../types'
+
+const LARGE_PROJECT_AUTO_SAVE_DELAY_MS = 3000
+const LARGE_PROJECT_DATA_URL_BYTES = 5_000_000
 
 type ActiveFlagRef = MutableRefObject<{
   active: boolean
@@ -18,6 +21,7 @@ type ActiveFlagRef = MutableRefObject<{
 type UseProjectStorageOptions = {
   project: Project
   projectRef: MutableRefObject<Project>
+  keyboardRecordingRef?: MutableRefObject<Map<string, KeyboardRecordingNote>>
   resizingNoteId: string | null
   noteDragRef: MutableRefObject<NoteDrag | null>
   eraseRef: ActiveFlagRef
@@ -27,6 +31,7 @@ type UseProjectStorageOptions = {
 export function useProjectStorage({
   project,
   projectRef,
+  keyboardRecordingRef,
   resizingNoteId,
   noteDragRef,
   eraseRef,
@@ -38,13 +43,19 @@ export function useProjectStorage({
     projectRef.current = project
 
     const isEditing =
+      (keyboardRecordingRef?.current.size ?? 0) > 0 ||
       Boolean(resizingNoteId) ||
       Boolean(noteDragRef.current?.active) ||
       eraseRef.current.active ||
       rightEraseRef.current.active
 
+    const hasLargeAudioData = (project.audioClips ?? []).some((clip) =>
+      clip.dataUrl.length > LARGE_PROJECT_DATA_URL_BYTES,
+    )
     const saveDelay = isEditing
       ? ACTIVE_EDIT_AUTO_SAVE_DELAY_MS
+      : hasLargeAudioData
+        ? LARGE_PROJECT_AUTO_SAVE_DELAY_MS
       : AUTO_SAVE_DELAY_MS
 
     const saveTimeout = window.setTimeout(() => {
@@ -61,6 +72,7 @@ export function useProjectStorage({
     }
   }, [
     eraseRef,
+    keyboardRecordingRef,
     noteDragRef,
     project,
     projectRef,

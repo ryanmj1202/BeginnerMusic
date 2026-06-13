@@ -288,6 +288,13 @@
   text-align: left;
 }
 
+.note-control-slider-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.35rem 2rem 1.35rem;
+  gap: 0.45rem;
+  align-items: center;
+}
+
 .note-control-stage input[type='range'] {
   width: 100%;
   height: 24px;
@@ -384,6 +391,46 @@
 .note-control-caption {
   color: #d7deea;
   font-size: 0.74rem;
+}
+
+.automation-keyframe-button {
+  width: 1.28rem;
+  height: 1.28rem;
+  margin: 0 auto;
+  border: 0;
+  border-radius: 1px;
+  background: #9ba7b8;
+  cursor: pointer;
+  padding: 0;
+  pointer-events: auto;
+  transform: rotate(45deg);
+}
+
+.automation-keyframe-button.is-active {
+  background: #4256de;
+  box-shadow: 0 0 10px rgba(66, 86, 222, 0.5);
+}
+
+.automation-keyframe-button:disabled {
+  background: #566273;
+  cursor: default;
+}
+
+.automation-jump-button {
+  border: 0;
+  background: transparent;
+  color: #b8c4d8;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.1rem 0;
+  pointer-events: auto;
+}
+
+.automation-jump-button:disabled {
+  color: #4d5868;
+  cursor: default;
 }
 
 .note-control-meter {

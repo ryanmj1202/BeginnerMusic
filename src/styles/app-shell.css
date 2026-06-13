@@ -175,6 +175,21 @@
   color: #ffffff;
 }
 
+.top-actions {
+  justify-self: end;
+}
+
+.top-actions .collaboration-top-button {
+  background: transparent;
+  color: #8d99aa;
+  font-weight: 400;
+}
+
+.top-actions .collaboration-top-button:hover {
+  background: #222733;
+  color: #f3f6fb;
+}
+
 .project-title-input {
   align-self: center;
   justify-self: center;
@@ -210,3 +225,289 @@ button:disabled {
   display: none;
 }
 
+.collaboration-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.collaboration-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  min-height: 258px;
+  border: 1px solid #343b4a;
+  background: #1a1d25;
+}
+
+.collaboration-choice-grid button {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  align-content: center;
+  gap: 1.35rem;
+  border: 0;
+  border-right: 1px solid #343b4a;
+  background: transparent;
+  color: #ffffff;
+  padding: 1.35rem 1rem 2.15rem;
+}
+
+.collaboration-choice-grid button:last-child {
+  border-right: 0;
+}
+
+.collaboration-choice-grid button:hover {
+  background: #2b3140;
+}
+
+.collaboration-choice-grid strong {
+  align-self: start;
+  font-size: 1.3rem;
+}
+
+.collaboration-choice-icon {
+  position: relative;
+  align-self: end;
+  width: 76px;
+  height: 72px;
+  margin-top: -0.8rem;
+  color: #dbe6ff;
+}
+
+.collaboration-choice-icon-people i {
+  position: absolute;
+  bottom: 10px;
+  width: 32px;
+  height: 34px;
+  border: 3px solid currentColor;
+  border-radius: 14px 14px 10px 10px;
+  background: #263244;
+}
+
+.collaboration-choice-icon-people i::before {
+  position: absolute;
+  top: -27px;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  border: 3px solid currentColor;
+  border-radius: 50%;
+  background: #263244;
+  content: "";
+  transform: translateX(-50%);
+}
+
+.collaboration-choice-icon-people i:first-child {
+  left: 8px;
+}
+
+.collaboration-choice-icon-people i:last-child {
+  right: 8px;
+}
+
+.collaboration-choice-icon-door {
+  width: 68px;
+}
+
+.collaboration-choice-icon-door::before {
+  position: absolute;
+  left: 17px;
+  bottom: 7px;
+  width: 34px;
+  height: 56px;
+  border: 3px solid currentColor;
+  border-radius: 4px 4px 2px 2px;
+  background: #263244;
+  content: "";
+}
+
+.collaboration-choice-icon-door::after {
+  content: none;
+}
+
+.collaboration-choice-icon-door i {
+  position: absolute;
+  z-index: 1;
+  right: 22px;
+  bottom: 34px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8fa0ff;
+}
+
+.collaboration-code-panel,
+.collaboration-join-panel {
+  display: grid;
+  gap: 0.75rem;
+  min-height: 258px;
+  place-content: center;
+  text-align: center;
+}
+
+.collaboration-code-panel strong,
+.collaboration-join-panel strong {
+  color: #ffffff;
+  font-size: 1.08rem;
+}
+
+.collaboration-code-panel > span {
+  color: #9ba7b8;
+  font-size: 0.78rem;
+}
+
+.collaboration-code-box {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 240px;
+  min-height: 96px;
+  border: 1px solid #343b4a;
+  border-radius: 6px;
+  background: #1a1d25;
+}
+
+.collaboration-code-box b {
+  color: #ffffff;
+  font-size: 2.2rem;
+  letter-spacing: 0.08em;
+}
+
+.collaboration-code-box button {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #b9c5d8;
+}
+
+.collaboration-code-box button:hover {
+  background: #303644;
+  color: #ffffff;
+}
+
+.collaboration-code-box svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.collaboration-join-panel input {
+  width: 190px;
+  height: 48px;
+  border: 1px solid #394154;
+  border-radius: 6px;
+  background: #1a1d25;
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.collaboration-join-panel button {
+  justify-self: center;
+  min-width: 112px;
+  height: 36px;
+  border: 0;
+  border-radius: 5px;
+  background: #4256de;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.collaboration-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: min(360px, calc(100vw - 32px));
+  border: 1px solid #303844;
+  border-radius: 8px;
+  background: #191d25;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
+  color: #f4f7fc;
+  padding: 0.8rem 0.9rem;
+  transform: translate(-50%, 18px);
+  animation: collaboration-toast-in 180ms ease-out forwards;
+}
+
+.collaboration-toast-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.collaboration-toast.is-success .collaboration-toast-icon {
+  color: #31c46c;
+}
+
+.collaboration-toast.is-error .collaboration-toast-icon {
+  color: #f05252;
+}
+
+.collaboration-toast > button {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #95a1b2;
+}
+
+.collaboration-toast > button:hover {
+  background: #303644;
+  color: #ffffff;
+}
+
+.collaboration-toast > button span::before,
+.collaboration-toast > button span::after {
+  position: absolute;
+  top: 13px;
+  left: 7px;
+  width: 14px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.collaboration-toast > button span::before {
+  transform: rotate(45deg);
+}
+
+.collaboration-toast > button span::after {
+  transform: rotate(-45deg);
+}
+
+@keyframes collaboration-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}

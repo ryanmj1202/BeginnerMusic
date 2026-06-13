@@ -1,6 +1,7 @@
 ﻿import { useState, type ComponentProps, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrangeView } from './ArrangeView'
 import { AutoMixPanel } from './AutoMixPanel'
+import { CollaborationDialog, type CollaborationDialogProps } from './CollaborationDialog'
 import { DetailPanel } from './DetailPanel'
 import { InstrumentDialog } from './InstrumentDialog'
 import { PianoRollView } from './PianoRollView'
@@ -27,6 +28,8 @@ type EditorLayoutProps = {
     redoProject: () => void
     undoProject: () => void
   }
+  collaborationDialogProps: CollaborationDialogProps
+  collaborationJoining: boolean
   isAutoMixing: boolean
   isDraggingFile: boolean
   patternClipboardExists: boolean
@@ -58,6 +61,8 @@ export function EditorLayout({
   closePianoRollContextMenu,
   closeTrackContextMenu,
   contextMenuActions,
+  collaborationDialogProps,
+  collaborationJoining,
   detailPanelProps,
   instrumentDialogProps,
   isAutoMixing,
@@ -143,10 +148,11 @@ export function EditorLayout({
       <TopMenu {...topMenuProps} />
       {isDraggingFile ? <div className="drop-overlay" aria-hidden="true">곡 파일, MIDI, 소리 파일을 놓으면 바로 불러옵니다.</div> : null}
       <InstrumentDialog {...instrumentDialogProps} />
-      {isAutoMixing ? (
+      <CollaborationDialog {...collaborationDialogProps} />
+      {isAutoMixing || collaborationJoining ? (
         <div className="busy-overlay" role="status" aria-live="polite">
-          <strong>자동 균형 조정 중</strong>
-          <span>악기별 음량, 좌우 균형, 울림을 맞추고 있습니다.</span>
+          <strong>{collaborationJoining ? '불러오는 중...' : '자동 균형 조정 중'}</strong>
+          <span>{collaborationJoining ? '잠시 대기해 주세요...' : '악기별 음량, 좌우 균형, 울림을 맞추고 있습니다.'}</span>
         </div>
       ) : null}
       {trackContextMenu ? (

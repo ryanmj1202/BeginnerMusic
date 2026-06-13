@@ -120,6 +120,39 @@
   will-change: left;
 }
 
+.collaboration-remote-cursor {
+  position: absolute;
+  z-index: 12;
+  width: 18px;
+  height: 24px;
+  pointer-events: none;
+  transform: translate(-2px, -1px);
+}
+
+.collaboration-remote-cursor::before {
+  position: absolute;
+  inset: 0;
+  background: #2f81f7;
+  clip-path: polygon(0 0, 0 20px, 5px 15px, 8px 23px, 12px 21px, 9px 13px, 16px 13px);
+  content: '';
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.32));
+}
+
+.collaboration-remote-cursor span {
+  position: absolute;
+  top: -4px;
+  left: 14px;
+  border: 1px solid rgba(47, 129, 247, 0.52);
+  border-radius: 4px;
+  background: rgba(16, 31, 53, 0.94);
+  color: #6fb3ff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.2rem 0.32rem;
+  white-space: nowrap;
+}
+
 .pattern-selection-box {
   position: absolute;
   z-index: 5;
@@ -374,6 +407,12 @@
 .note-block.is-pattern-selected {
   border-color: #dbe0ff;
   box-shadow: 0 0 0 1px rgba(219, 224, 255, 0.55);
+}
+
+.note-block.is-remote-editing {
+  box-shadow:
+    inset 0 0 0 999px rgba(47, 129, 247, 0.42),
+    0 0 0 1px rgba(111, 179, 255, 0.85);
 }
 
 .note-block.is-ghost {

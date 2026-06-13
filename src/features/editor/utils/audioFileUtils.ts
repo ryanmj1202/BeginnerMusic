@@ -2,6 +2,12 @@
 import { MIN_DURATION_BEATS, TRACK_COLORS } from '../constants'
 import { createId, getTempoAtBeat } from '../helpers'
 
+const MAX_WAVEFORM_DECODE_BYTES = 24 * 1024 * 1024
+
+function createFallbackWaveform(bars: number) {
+  return Array.from({ length: bars }, (_, index) => 0.24 + Math.sin(index * 0.31) * 0.14)
+}
+
 export function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -24,6 +30,10 @@ export function getAudioDurationFromDataUrl(dataUrl: string) {
 }
 
 export async function getAudioWaveform(blob: Blob, bars = 96) {
+  if (blob.size > MAX_WAVEFORM_DECODE_BYTES) {
+    return createFallbackWaveform(bars)
+  }
+
   try {
     const arrayBuffer = await blob.arrayBuffer()
     const context = new AudioContext()
@@ -42,7 +52,7 @@ export async function getAudioWaveform(blob: Blob, bars = 96) {
     await context.close()
     return waveform
   } catch {
-    return Array.from({ length: bars }, (_, index) => 0.24 + Math.sin(index * 0.31) * 0.14)
+    return createFallbackWaveform(bars)
   }
 }
 

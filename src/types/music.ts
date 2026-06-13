@@ -12,6 +12,12 @@ export interface Note {
   pan?: number
   expression?: number
   reverb?: number
+  controlAutomation?: Partial<Record<string, NoteControlKeyframe[]>>
+}
+
+export interface NoteControlKeyframe {
+  beatOffset: number
+  value: number
 }
 
 export interface Track {

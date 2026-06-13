@@ -16,6 +16,7 @@ export type BeginnerInstrument = {
   expectsMidi?: boolean
   readyTimeoutMs?: number
   ready?: Promise<void>
+  setPitchBend?: (cents: number, time?: number, rampSeconds?: number) => unknown
   triggerAttackRelease: (
     note: number,
     duration: number,
@@ -276,6 +277,19 @@ function createIsolatedSoundFontInstrument(
       outputNode = destination
       return destination
     },
+    setPitchBend(cents, time, rampSeconds = 0) {
+      const detune = (sampler as any).detune
+      if (!detune) return
+      if (rampSeconds > 0 && typeof detune.linearRampToValueAtTime === 'function') {
+        detune.linearRampToValueAtTime(cents, (time ?? Tone.now()) + rampSeconds)
+        return
+      }
+      if (typeof detune.setValueAtTime === 'function') {
+        detune.setValueAtTime(cents, time ?? Tone.now())
+      } else {
+        detune.value = cents
+      }
+    },
     triggerAttackRelease(note, duration, time, velocity) {
       if (!isReady) return fallback.triggerAttackRelease(note, duration, time, velocity)
       scheduleTrackedRelease(note, duration, time)
@@ -380,6 +394,19 @@ function createSoundFontInstrument(
       entry.sampler.disconnect(outputNode as any)
       outputNode = destination
       return destination
+    },
+    setPitchBend(cents, time, rampSeconds = 0) {
+      const detune = (entry.sampler as any).detune
+      if (!entry.isReady || entry.failed || !detune) return fallback.setPitchBend?.(cents, time, rampSeconds)
+      if (rampSeconds > 0 && typeof detune.linearRampToValueAtTime === 'function') {
+        detune.linearRampToValueAtTime(cents, (time ?? Tone.now()) + rampSeconds)
+        return
+      }
+      if (typeof detune.setValueAtTime === 'function') {
+        detune.setValueAtTime(cents, time ?? Tone.now())
+      } else {
+        detune.value = cents
+      }
     },
     triggerAttackRelease(note, duration, time, velocity) {
       if (!entry.isReady || entry.failed) {
@@ -994,9 +1021,16 @@ function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrument {
 
 function wrapPolySynthInstrument(synth: Tone.PolySynth): BeginnerInstrument {
   let disposed = false
+  let pitchBendCents = 0
+  const pitchBendTimeouts = new Set<number>()
   const destination = Tone.getDestination()
   let outputNode: unknown = destination
   synth.connect(destination)
+
+  function applyPitchBend(cents: number) {
+    pitchBendCents = cents
+    synth.set({ detune: cents })
+  }
 
   return {
     connect(node) {
@@ -1013,6 +1047,28 @@ function wrapPolySynthInstrument(synth: Tone.PolySynth): BeginnerInstrument {
       synth.connect(destination)
       outputNode = destination
       return destination
+    },
+    setPitchBend(cents, time, rampSeconds = 0) {
+      const startDelayMs = Math.max(0, ((time ?? Tone.now()) - Tone.now()) * 1000)
+      if (rampSeconds <= 0) {
+        const timeoutId = window.setTimeout(() => {
+          pitchBendTimeouts.delete(timeoutId)
+          if (!disposed) applyPitchBend(cents)
+        }, startDelayMs)
+        pitchBendTimeouts.add(timeoutId)
+        return
+      }
+
+      const startCents = pitchBendCents
+      const steps = Math.max(8, Math.min(48, Math.round(rampSeconds * 60)))
+      for (let index = 1; index <= steps; index += 1) {
+        const ratio = index / steps
+        const timeoutId = window.setTimeout(() => {
+          pitchBendTimeouts.delete(timeoutId)
+          if (!disposed) applyPitchBend(startCents + (cents - startCents) * ratio)
+        }, startDelayMs + rampSeconds * 1000 * ratio)
+        pitchBendTimeouts.add(timeoutId)
+      }
     },
     triggerAttackRelease(note, duration, time, velocity) {
       if (disposed) return
@@ -1032,6 +1088,8 @@ function wrapPolySynthInstrument(synth: Tone.PolySynth): BeginnerInstrument {
     dispose() {
       if (disposed) return
       disposed = true
+      pitchBendTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      pitchBendTimeouts.clear()
       const now = Tone.now()
       synth.releaseAll(now)
       synth.volume.cancelScheduledValues(now)

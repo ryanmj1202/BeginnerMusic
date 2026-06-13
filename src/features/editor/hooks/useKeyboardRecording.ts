@@ -35,6 +35,10 @@ import {
 } from './keyboardRecordingTypes'
 import { useMidiInput } from './useMidiInput'
 
+const MIDI_CONTROL_UPDATE_EPSILON = 0.01
+const MIDI_LIVE_RESTART_INTERVAL_MS = 90
+const MIDI_PITCH_BEND_EPSILON = 0.04
+
 export function useKeyboardRecording({
   activePlaybackTracksRef,
   getMinimumPlaybackDrumSeconds,
@@ -53,8 +57,12 @@ export function useKeyboardRecording({
   totalBeatsRef,
 }: UseKeyboardRecordingOptions) {
   const midiControlsRef = useRef(new Map<number, MidiPerformanceControls>())
+  const lastMidiLiveRestartAtRef = useRef(new Map<number, number>())
   const liveMidiInstrumentsRef = useRef(new Map<string, ReturnType<typeof createInstrument>>())
   const liveMidiVoicesRef = useRef(new Map<string, LiveMidiVoice>())
+  const pendingMidiControlUpdatesRef = useRef(new Map<number, Partial<Note>>())
+  const pendingMidiLiveRestartTimeoutsRef = useRef(new Map<number, number>())
+  const midiControlUpdateFrameRef = useRef<number | null>(null)
   const selectedTrackRef = useRef<Track | undefined>(selectedTrack)
 
   selectedTrackRef.current = selectedTrack
@@ -338,23 +346,6 @@ export function useKeyboardRecording({
     return Math.max(0, getPlaybackBeatAtEventTime(eventTimeStamp) - recording.startBeat)
   }
 
-  function updateRecordingNote(recording: KeyboardRecordingNote, updates: Partial<Note>) {
-    setProject((current) => {
-      const notes = current.notesByTrack[recording.trackId] ?? []
-      return {
-        ...current,
-        notesByTrack: {
-          ...current.notesByTrack,
-          [recording.trackId]: notes.map((note) =>
-            note.id === recording.noteId
-              ? { ...note, ...updates }
-              : note,
-          ),
-        },
-      }
-    })
-  }
-
   function updateActiveDurations() {
     if (isPlaying && getWorkstationLoopSettings(projectRef.current).enabled) return
 
@@ -484,12 +475,108 @@ export function useKeyboardRecording({
     finishKeyboardNote(`midi:${channel}:${pitch}`, eventTimeStamp)
   }
 
-  function updateMidiControlNotes(channel: number, updates: Partial<Note>) {
-    keyboardRecordingRef.current.forEach((recording) => {
-      if (recording.channel === channel && recording.releaseTimeStamp === undefined) {
-        updateRecordingNote(recording, updates)
-      }
+  function flushPendingMidiControlUpdates() {
+    midiControlUpdateFrameRef.current = null
+    const pendingUpdates = pendingMidiControlUpdatesRef.current
+    if (pendingUpdates.size === 0) return
+
+    pendingMidiControlUpdatesRef.current = new Map()
+    setProject((current) => {
+      let changed = false
+      const updatesByNote = new Map<string, Partial<Note>>()
+
+      keyboardRecordingRef.current.forEach((recording) => {
+        if (recording.releaseTimeStamp !== undefined || recording.channel === undefined) return
+        const updates = pendingUpdates.get(recording.channel)
+        if (!updates) return
+        updatesByNote.set(recording.noteId, updates)
+      })
+
+      if (updatesByNote.size === 0) return current
+
+      const notesByTrack = Object.fromEntries(Object.entries(current.notesByTrack).map(([trackId, notes]) => {
+        const nextNotes = notes.map((note) => {
+          const updates = updatesByNote.get(note.id)
+          if (!updates) return note
+          changed = true
+          return { ...note, ...updates }
+        })
+        return [trackId, nextNotes]
+      }))
+
+      return changed ? { ...current, notesByTrack } : current
     })
+  }
+
+  function updateMidiControlNotes(channel: number, updates: Partial<Note>) {
+    const currentUpdates = pendingMidiControlUpdatesRef.current.get(channel) ?? {}
+    pendingMidiControlUpdatesRef.current.set(channel, { ...currentUpdates, ...updates })
+    if (midiControlUpdateFrameRef.current === null) {
+      midiControlUpdateFrameRef.current = window.requestAnimationFrame(flushPendingMidiControlUpdates)
+    }
+  }
+
+  function scheduleLiveMidiVoiceRestart(channel: number) {
+    const hasActiveVoices = Array.from(keyboardRecordingRef.current.values()).some((recording) =>
+      recording.channel === channel &&
+      recording.releaseTimeStamp === undefined &&
+      liveMidiVoicesRef.current.has(`midi:${channel}:${recording.pitch}`),
+    )
+    if (!hasActiveVoices) return
+
+    const timeoutId = pendingMidiLiveRestartTimeoutsRef.current.get(channel)
+    if (timeoutId !== undefined) return
+
+    const now = performance.now()
+    const lastRestartAt = lastMidiLiveRestartAtRef.current.get(channel) ?? 0
+    const delay = Math.max(0, MIDI_LIVE_RESTART_INTERVAL_MS - (now - lastRestartAt))
+
+    const restart = () => {
+      pendingMidiLiveRestartTimeoutsRef.current.delete(channel)
+      lastMidiLiveRestartAtRef.current.set(channel, performance.now())
+      restartLiveMidiVoices(channel)
+    }
+
+    if (delay === 0) {
+      restart()
+    } else {
+      pendingMidiLiveRestartTimeoutsRef.current.set(channel, window.setTimeout(restart, delay))
+    }
+  }
+
+  function hasControlChanged(currentValue: number, nextValue: number, epsilon = MIDI_CONTROL_UPDATE_EPSILON) {
+    return Math.abs(currentValue - nextValue) >= epsilon
+  }
+
+  function clearPendingMidiWork() {
+    if (midiControlUpdateFrameRef.current !== null) {
+      window.cancelAnimationFrame(midiControlUpdateFrameRef.current)
+      midiControlUpdateFrameRef.current = null
+    }
+    pendingMidiControlUpdatesRef.current.clear()
+    pendingMidiLiveRestartTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    pendingMidiLiveRestartTimeoutsRef.current.clear()
+  }
+
+  function hasActiveMidiNotes(channel: number) {
+    return Array.from(keyboardRecordingRef.current.values()).some((recording) =>
+      recording.channel === channel && recording.releaseTimeStamp === undefined,
+    )
+  }
+
+  function updateActiveMidiControl(channel: number, updates: Partial<Note>, restartLiveVoices: boolean) {
+    if (!hasActiveMidiNotes(channel)) return
+    updateMidiControlNotes(channel, updates)
+    if (restartLiveVoices) scheduleLiveMidiVoiceRestart(channel)
+  }
+
+  function stopLiveMidiVoicesForChannelAndClear(channel: number, immediate = false) {
+    const timeoutId = pendingMidiLiveRestartTimeoutsRef.current.get(channel)
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+      pendingMidiLiveRestartTimeoutsRef.current.delete(channel)
+    }
+    stopLiveMidiVoicesForChannel(channel, immediate)
   }
 
   function restartLiveMidiVoices(channel: number) {
@@ -519,37 +606,56 @@ export function useKeyboardRecording({
     const controls = getMidiControls(channel)
     const normalizedValue = clamp01(value / 127)
     if (controller === 120 || controller === 123) {
-      stopLiveMidiVoicesForChannel(channel, true)
+      stopLiveMidiVoicesForChannelAndClear(channel, true)
       return
     }
     if (controller === 121) {
       midiControlsRef.current.set(channel, { ...DEFAULT_MIDI_CONTROLS })
       releaseSustainedNotes(channel, eventTimeStamp)
-      restartLiveMidiVoices(channel)
+      updateActiveMidiControl(channel, {
+        expression: DEFAULT_MIDI_CONTROLS.expression,
+        modulation: DEFAULT_MIDI_CONTROLS.modulation,
+        pan: DEFAULT_MIDI_CONTROLS.pan,
+        pitchBend: DEFAULT_MIDI_CONTROLS.pitchBend,
+        reverb: DEFAULT_MIDI_CONTROLS.reverb,
+        volume: DEFAULT_MIDI_CONTROLS.volume,
+      }, true)
       return
     }
     if (controller === 1) {
+      const previousModulation = controls.modulation
+      if (!hasControlChanged(previousModulation, normalizedValue)) return
       controls.modulation = normalizedValue
-      updateMidiControlNotes(channel, { modulation: controls.modulation })
-      restartLiveMidiVoices(channel)
+      updateActiveMidiControl(
+        channel,
+        { modulation: controls.modulation },
+        (previousModulation <= MIDI_CONTROL_UPDATE_EPSILON) !== (controls.modulation <= MIDI_CONTROL_UPDATE_EPSILON),
+      )
       return
     }
     if (controller === 7) {
+      if (!hasControlChanged(controls.volume, normalizedValue)) return
       controls.volume = normalizedValue
-      updateMidiControlNotes(channel, { volume: controls.volume })
-      restartLiveMidiVoices(channel)
+      updateActiveMidiControl(channel, { volume: controls.volume }, false)
       return
     }
     if (controller === 10) {
-      controls.pan = clampPan((value - 64) / 63)
-      updateMidiControlNotes(channel, { pan: controls.pan })
-      restartLiveMidiVoices(channel)
+      const pan = clampPan((value - 64) / 63)
+      if (!hasControlChanged(controls.pan, pan)) return
+      const previousPan = controls.pan
+      controls.pan = pan
+      updateActiveMidiControl(
+        channel,
+        { pan: controls.pan },
+        (Math.abs(previousPan) <= MIDI_CONTROL_UPDATE_EPSILON) !==
+          (Math.abs(controls.pan) <= MIDI_CONTROL_UPDATE_EPSILON),
+      )
       return
     }
     if (controller === 11) {
+      if (!hasControlChanged(controls.expression, normalizedValue)) return
       controls.expression = normalizedValue
-      updateMidiControlNotes(channel, { expression: controls.expression })
-      restartLiveMidiVoices(channel)
+      updateActiveMidiControl(channel, { expression: controls.expression }, false)
       return
     }
     if (controller === 64) {
@@ -558,9 +664,14 @@ export function useKeyboardRecording({
       return
     }
     if (controller === 91) {
+      const previousReverb = controls.reverb
+      if (!hasControlChanged(previousReverb, normalizedValue)) return
       controls.reverb = normalizedValue
-      updateMidiControlNotes(channel, { reverb: controls.reverb })
-      restartLiveMidiVoices(channel)
+      updateActiveMidiControl(
+        channel,
+        { reverb: controls.reverb },
+        (previousReverb <= MIDI_CONTROL_UPDATE_EPSILON) !== (controls.reverb <= MIDI_CONTROL_UPDATE_EPSILON),
+      )
     }
   }
 
@@ -569,7 +680,7 @@ export function useKeyboardRecording({
     if (!currentTrack) return
 
     const instrumentId = `gm-${Math.max(0, Math.min(127, program))}`
-    stopLiveMidiVoicesForChannel(channel, true)
+    stopLiveMidiVoicesForChannelAndClear(channel, true)
     disposeSharedLiveMidiInstrumentsForTrack(currentTrack.id)
     const nextTrack = {
       ...currentTrack,
@@ -592,16 +703,22 @@ export function useKeyboardRecording({
     const value = (mostSignificant << 7) | leastSignificant
     const pitchBend = Math.max(-2, Math.min(2, ((value - 8192) / 8192) * 2))
     const controls = getMidiControls(channel)
+    if (!hasControlChanged(controls.pitchBend, pitchBend, MIDI_PITCH_BEND_EPSILON)) return
     controls.pitchBend = pitchBend
-    updateMidiControlNotes(channel, { pitchBend })
-    restartLiveMidiVoices(channel)
+    updateActiveMidiControl(channel, { pitchBend }, true)
   }
 
   function handleMidiAftertouch(channel: number, value: number) {
     const controls = getMidiControls(channel)
-    controls.modulation = clamp01(value / 127)
-    updateMidiControlNotes(channel, { modulation: controls.modulation })
-    restartLiveMidiVoices(channel)
+    const modulation = clamp01(value / 127)
+    if (!hasControlChanged(controls.modulation, modulation)) return
+    const previousModulation = controls.modulation
+    controls.modulation = modulation
+    updateActiveMidiControl(
+      channel,
+      { modulation: controls.modulation },
+      (previousModulation <= MIDI_CONTROL_UPDATE_EPSILON) !== (controls.modulation <= MIDI_CONTROL_UPDATE_EPSILON),
+    )
   }
 
   useEffect(() => {
@@ -612,6 +729,7 @@ export function useKeyboardRecording({
   }, [keyboardInputEnabled, isPlaying])
 
   useEffect(() => {
+    clearPendingMidiWork()
     liveMidiVoicesRef.current.forEach((_, code) => stopLiveMidiVoice(code, true))
     disposeAllSharedLiveMidiInstruments()
     keyboardRecordingRef.current.clear()

@@ -24,6 +24,7 @@ type PianoRollRowsProps = {
   pressedPitch: number | null
   projectSelectedNoteId: string | null
   resizingNoteId: string | null
+  remoteSelectedNoteIds: string[]
   rollPitches: number[]
   selectedNoteIdSet: Set<string>
   selectedNoteIds: string[]
@@ -50,6 +51,7 @@ export function PianoRollRows({
   pressedPitch,
   projectSelectedNoteId,
   resizingNoteId,
+  remoteSelectedNoteIds,
   rollPitches,
   selectedNoteIdSet,
   selectedNoteIds,
@@ -59,6 +61,7 @@ export function PianoRollRows({
   startResizingNote,
   totalBeats,
 }: PianoRollRowsProps) {
+  const remoteSelectedNoteIdSet = new Set(remoteSelectedNoteIds)
   const getTrackDisplay = (trackId: string) => {
     const track = tracks.find((item) => item.id === trackId)
     return {
@@ -99,6 +102,7 @@ export function PianoRollRows({
                 allTrackMelodyMode ? 'is-all-track-note' : 'is-ghost',
                 selectedNoteIdSet.has(note.id) ? 'is-selected' : '',
                 selectedNoteIdSet.has(note.id) && selectedNoteIds.length > 1 ? 'is-pattern-selected' : '',
+                remoteSelectedNoteIdSet.has(note.id) ? 'is-remote-editing' : '',
               ]
                 .filter(Boolean)
                 .join(' ')
@@ -147,6 +151,7 @@ export function PianoRollRows({
                 selectedNoteIdSet.has(note.id) && selectedNoteIds.length > 1 ? 'is-pattern-selected' : '',
                 draggingNoteId === note.id ? 'is-dragging' : '',
                 resizingNoteId === note.id ? 'is-resizing' : '',
+                remoteSelectedNoteIdSet.has(note.id) ? 'is-remote-editing' : '',
               ]
                 .filter(Boolean)
                 .join(' ')

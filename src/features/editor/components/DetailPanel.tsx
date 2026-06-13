@@ -5,9 +5,14 @@
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { Note } from '../../../types/music'
-import { TEMPO_PRESETS, TERMINOLOGY_HELP } from '../constants'
+import { TERMINOLOGY_HELP } from '../constants'
 import { getPitchName } from '../helpers'
-import { clampNoteControlValue, quantizeValue } from '../utils/noteControlUtils'
+import {
+  clampNoteControlValue,
+  getAutomatedNoteControlValue,
+  getNoteControlAutomation,
+  quantizeValue,
+} from '../utils/noteControlUtils'
 import type { EditableNoteControlKey } from '../types'
 
 type ActiveNoteControl = {
@@ -19,13 +24,18 @@ type ActiveNoteControl = {
   step: number
 } | null
 
+const KEYFRAME_MATCH_TOLERANCE_BEATS = 1 / 64
+
 type DetailPanelProps = {
   activeDetailTerm: string
   activeNoteControl: ActiveNoteControl
+  beginHistoryBatch: () => void
   changeTempoInput: (value: string) => void
   commitTempoInput: () => void
+  currentBeat: number
   detailPanelOpen: boolean
   editableSelectedNotes: Note[]
+  endHistoryBatch: () => void
   getSelectedNoteValue: (key: EditableNoteControlKey) => number
   isPlaying: boolean
   projectTempo: number
@@ -33,6 +43,7 @@ type DetailPanelProps = {
   selectedNote: Note | null
   setActiveDetailTerm: Dispatch<SetStateAction<string>>
   setDetailPanelOpen: Dispatch<SetStateAction<boolean>>
+  seekPlaybackToBeat: (beat: number) => void
   sortedEditableSelectedNotes: Note[]
   tempoInput: string
   togglePlayback: () => void
@@ -40,12 +51,12 @@ type DetailPanelProps = {
     noteId: string,
     key: EditableNoteControlKey,
     value: number,
+    automationBeatOffset?: number,
   ) => void
   updateNoteEvent: (
     noteId: string,
     updates: Partial<Pick<Note, 'pitch' | 'startBeat' | 'durationBeats' | 'velocity'>>,
   ) => void
-  updateTempo: (tempo: number) => void
 }
 
 function getControlRange(key: EditableNoteControlKey) {
@@ -136,10 +147,13 @@ function renderControlArt(key: EditableNoteControlKey, value: number) {
 export function DetailPanel({
   activeDetailTerm,
   activeNoteControl,
+  beginHistoryBatch,
   changeTempoInput,
   commitTempoInput,
+  currentBeat,
   detailPanelOpen,
   editableSelectedNotes,
+  endHistoryBatch,
   getSelectedNoteValue,
   isPlaying,
   projectTempo,
@@ -147,18 +161,17 @@ export function DetailPanel({
   selectedNote,
   setActiveDetailTerm,
   setDetailPanelOpen,
+  seekPlaybackToBeat,
   sortedEditableSelectedNotes,
   tempoInput,
   togglePlayback,
   updateNoteEvent,
   updateSingleNoteControlValue,
-  updateTempo,
 }: DetailPanelProps) {
   const selectedValue = activeNoteControl ? getSelectedNoteValue(activeNoteControl.key) : 0
   const [draftControlValue, setDraftControlValue] = useState<number | null>(null)
   const [metronomeOn, setMetronomeOn] = useState(false)
   const metronomeAudioContextRef = useRef<AudioContext | null>(null)
-  const displayValue = draftControlValue ?? selectedValue
   const parsedMetronomeTempo = Number(tempoInput)
   const metronomeTempo = Number.isFinite(parsedMetronomeTempo) && parsedMetronomeTempo > 0
     ? parsedMetronomeTempo
@@ -169,10 +182,66 @@ export function DetailPanel({
     : selectedNote
       ? [selectedNote]
       : []
+  const automationSignature = activeNoteControl
+    ? editableNotes.map((note) =>
+      getNoteControlAutomation(note, activeNoteControl.key)
+        .map((point) => `${point.beatOffset}:${point.value}`)
+        .join('|'),
+    ).join(';')
+    : ''
+  const automationEnabled = activeNoteControl
+    ? editableNotes.some((note) => getNoteControlAutomation(note, activeNoteControl.key).length > 0)
+    : false
+  const automatedDisplayValue = activeNoteControl && automationEnabled && editableNotes.length > 0
+    ? editableNotes.reduce((total, note) => (
+      total + getAutomatedNoteControlValue(
+        note,
+        activeNoteControl.key,
+        Math.max(0, Math.min(note.durationBeats, currentBeat - note.startBeat)),
+      )
+    ), 0) / editableNotes.length
+    : selectedValue
+  const displayValue = draftControlValue ?? automatedDisplayValue
+  const automationKeyframeBeats = activeNoteControl
+    ? [...new Set(editableNotes.flatMap((note) =>
+      getNoteControlAutomation(note, activeNoteControl.key).map((point) =>
+        Number((note.startBeat + point.beatOffset).toFixed(6)),
+      ),
+    ))].sort((left, right) => left - right)
+    : []
+  const previousAutomationBeat = [...automationKeyframeBeats]
+    .reverse()
+    .find((beat) => beat < currentBeat - KEYFRAME_MATCH_TOLERANCE_BEATS)
+  const nextAutomationBeat = automationKeyframeBeats
+    .find((beat) => beat > currentBeat + KEYFRAME_MATCH_TOLERANCE_BEATS)
+  function getCurrentBeatOffset(note: Note) {
+    return Math.max(0, Math.min(note.durationBeats, currentBeat - note.startBeat))
+  }
+
+  function getMatchedAutomationBeatOffset(note: Note) {
+    const beatOffset = Math.max(0, Math.min(note.durationBeats, currentBeat - note.startBeat))
+    if (!activeNoteControl) return null
+
+    const matchedPoint = getNoteControlAutomation(note, activeNoteControl.key).find((point) =>
+      Math.abs(point.beatOffset - beatOffset) <= KEYFRAME_MATCH_TOLERANCE_BEATS,
+    )
+    return matchedPoint?.beatOffset ?? null
+  }
+
+  function getAutomationWriteBeatOffset(note: Note) {
+    return getMatchedAutomationBeatOffset(note) ?? getCurrentBeatOffset(note)
+  }
+
+  const activeAutomationBeatOffsets = activeNoteControl
+    ? editableNotes
+      .map((note) => ({ note, beatOffset: getMatchedAutomationBeatOffset(note) }))
+      .filter((item): item is { note: Note; beatOffset: number } => item.beatOffset !== null)
+    : []
+  const automationPointActive = activeAutomationBeatOffsets.length > 0
 
   useEffect(() => {
     setDraftControlValue(null)
-  }, [activeNoteControl?.key, selectedNote?.id, selectedValue])
+  }, [activeNoteControl?.key, automationSignature, currentBeat, selectedNote?.id, selectedValue])
 
   useEffect(() => {
     return () => {
@@ -242,12 +311,19 @@ export function DetailPanel({
     )
     setDraftControlValue(nextValue)
     editableNotes.forEach((note) => {
-      updateSingleNoteControlValue(note.id, activeNoteControl.key, nextValue)
+      updateSingleNoteControlValue(
+        note.id,
+        activeNoteControl.key,
+        nextValue,
+        automationEnabled ? getAutomationWriteBeatOffset(note) : undefined,
+      )
     })
   }
 
   function updateControlValueFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
     if (!activeNoteControl || !range || editableNotes.length === 0) return
+    if ((event.target as HTMLElement).closest('button,input')) return
+    beginHistoryBatch()
     const target = event.currentTarget
     const applyPointerValue = (clientX: number) => {
       const rect = target.getBoundingClientRect()
@@ -260,9 +336,27 @@ export function DetailPanel({
     const handlePointerUp = () => {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
+      endHistoryBatch()
     }
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', handlePointerUp)
+  }
+
+  function toggleAutomationLock() {
+    if (!activeNoteControl || editableNotes.length === 0) return
+    beginHistoryBatch()
+    const targetNotes = automationPointActive
+      ? activeAutomationBeatOffsets
+      : editableNotes.map((note) => ({ note, beatOffset: getCurrentBeatOffset(note) }))
+    targetNotes.forEach(({ note, beatOffset }) => {
+      updateSingleNoteControlValue(
+        note.id,
+        activeNoteControl.key,
+        automationPointActive ? Number.NaN : displayValue,
+        beatOffset,
+      )
+    })
+    endHistoryBatch()
   }
 
   return (
@@ -298,17 +392,67 @@ export function DetailPanel({
                 <div className="note-control-card">
                   <div className="note-control-stage" onPointerDown={updateControlValueFromPointer}>
                     {renderControlArt(activeNoteControl.key, displayValue)}
-                    <input
-                      aria-label={activeNoteControl.label}
-                      max={range.max}
-                      min={range.min}
-                      onChange={(event) => updateControlValue(Number(event.target.value))}
-                      onInput={(event) => updateControlValue(Number(event.currentTarget.value))}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      step={range.step}
-                      type="range"
-                      value={displayValue}
-                    />
+                    <div className="note-control-slider-row">
+                      <input
+                        aria-label={activeNoteControl.label}
+                        max={range.max}
+                        min={range.min}
+                        onChange={(event) => updateControlValue(Number(event.target.value))}
+                        onInput={(event) => updateControlValue(Number(event.currentTarget.value))}
+                        onPointerCancel={() => endHistoryBatch()}
+                        onPointerDown={(event) => {
+                          event.stopPropagation()
+                          beginHistoryBatch()
+                        }}
+                        onPointerUp={() => endHistoryBatch()}
+                        step={range.step}
+                        type="range"
+                        value={displayValue}
+                      />
+                      <button
+                        aria-label="이전 키프레임으로 이동"
+                        className="automation-jump-button"
+                        disabled={previousAutomationBeat === undefined}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          if (previousAutomationBeat !== undefined) seekPlaybackToBeat(previousAutomationBeat)
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        type="button"
+                      >
+                        {'<'}
+                      </button>
+                      <button
+                        className={automationPointActive ? 'automation-keyframe-button is-active' : 'automation-keyframe-button'}
+                        aria-label="현재 위치에 키프레임 저장"
+                        aria-pressed={automationPointActive}
+                        disabled={editableNotes.length === 0}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          toggleAutomationLock()
+                        }}
+                        onPointerDown={(event) => {
+                          event.stopPropagation()
+                        }}
+                        type="button"
+                      />
+                      <button
+                        aria-label="다음 키프레임으로 이동"
+                        className="automation-jump-button"
+                        disabled={nextAutomationBeat === undefined}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          if (nextAutomationBeat !== undefined) seekPlaybackToBeat(nextAutomationBeat)
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        type="button"
+                      >
+                        {'>'}
+                      </button>
+                    </div>
                   </div>
                   <span className="note-control-caption">
                     {formatControlValue(activeNoteControl, displayValue)}

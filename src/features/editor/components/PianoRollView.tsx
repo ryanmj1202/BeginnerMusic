@@ -61,6 +61,8 @@ type PianoRollViewProps = {
   pressedPitch: number | null
   projectSelectedNoteId: string | null
   resizingNoteId: string | null
+  remoteCursor: { x: number; y: number } | null
+  remoteSelectedNoteIds: string[]
   rollPitches: number[]
   rollShellStyle: CSSProperties
   rollTimelineStyle: CSSProperties
@@ -117,6 +119,8 @@ export function PianoRollView({
   pressedPitch,
   projectSelectedNoteId,
   resizingNoteId,
+  remoteCursor,
+  remoteSelectedNoteIds,
   rollPitches,
   rollShellStyle,
   rollTimelineStyle,
@@ -276,6 +280,18 @@ export function PianoRollView({
           <div className="roll-playhead-layer" aria-hidden="true">
             <span className="roll-playhead" />
           </div>
+          {remoteCursor ? (
+            <span
+              className="collaboration-remote-cursor"
+              style={{
+                left: `${remoteCursor.x}px`,
+                top: `${remoteCursor.y}px`,
+              }}
+              aria-hidden="true"
+            >
+              <span>상대</span>
+            </span>
+          ) : null}
           {false ? <div className="auto-mix-cut-overlay" aria-label="자동 균형 조정 경계">
             {autoMixSections.map((section) => (
               <button
@@ -386,6 +402,7 @@ export function PianoRollView({
             pressedPitch={pressedPitch}
             projectSelectedNoteId={projectSelectedNoteId}
             resizingNoteId={resizingNoteId}
+            remoteSelectedNoteIds={remoteSelectedNoteIds}
             rollPitches={rollPitches}
             selectedNoteIdSet={selectedNoteIdSet}
             selectedNoteIds={selectedNoteIds}
