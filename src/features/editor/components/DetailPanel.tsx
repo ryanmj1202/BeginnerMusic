@@ -160,7 +160,6 @@ export function DetailPanel({
   resetPlayback,
   selectedNote,
   setActiveDetailTerm,
-  setDetailPanelOpen,
   seekPlaybackToBeat,
   sortedEditableSelectedNotes,
   tempoInput,
