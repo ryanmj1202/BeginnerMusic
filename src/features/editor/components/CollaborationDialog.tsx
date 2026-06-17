@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 
 type CollaborationToast = {
   id: number
@@ -8,6 +8,7 @@ type CollaborationToast = {
 
 export type CollaborationDialogProps = {
   closeCollaborationDialog: () => void
+  collaborationActive: boolean
   collaborationCode: string | null
   collaborationDialogOpen: boolean
   collaborationToast: CollaborationToast
@@ -56,6 +57,7 @@ function CollaborationToastView({
 
 export function CollaborationDialog({
   closeCollaborationDialog,
+  collaborationActive,
   collaborationCode,
   collaborationDialogOpen,
   collaborationToast,
@@ -98,7 +100,7 @@ export function CollaborationDialog({
     }
 
     setCopied(true)
-    showCollaborationToast('클립보드에 복사됐습니다.', 'success')
+    showCollaborationToast('클립보드에 복사했습니다.', 'success')
     window.setTimeout(() => setCopied(false), 1600)
   }
 
@@ -112,7 +114,7 @@ export function CollaborationDialog({
         >
           {selectedCollaborationMode === 'create' && collaborationCode ? (
             <div className="collaboration-code-panel">
-              <strong>참여 코드를 같이 협업하고 싶은 친구에게 공유하세요.</strong>
+              <strong>참여 코드를 같이 작업할 친구에게 공유하세요.</strong>
               <span>참여 코드:</span>
               <div className="collaboration-code-box">
                 <button type="button" aria-label="참여 코드 복사하기" onPointerDown={copyCollaborationCode}>
@@ -137,12 +139,12 @@ export function CollaborationDialog({
             </div>
           ) : (
             <div className="collaboration-choice-grid">
-              <button type="button" onPointerDown={openCreateCollaborationRoom}>
+              <button type="button" disabled={collaborationActive} onPointerDown={collaborationActive ? undefined : openCreateCollaborationRoom}>
                 <span className="collaboration-choice-icon collaboration-choice-icon-people" aria-hidden="true">
                   <i />
                   <i />
                 </span>
-                <strong>방 생성하기</strong>
+                <strong>{collaborationActive ? '협업 진행 중' : '방 생성하기'}</strong>
               </button>
               <button type="button" onPointerDown={openJoinCollaborationRoom}>
                 <span className="collaboration-choice-icon collaboration-choice-icon-door" aria-hidden="true">

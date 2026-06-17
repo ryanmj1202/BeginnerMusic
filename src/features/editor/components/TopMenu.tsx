@@ -6,6 +6,7 @@ type TopMenuProps = {
   audioFileInputRef: RefObject<HTMLInputElement | null>
   canRedo: boolean
   canUndo: boolean
+  collaborationActive: boolean
   copySelectedNotes: () => void
   createNewProject: () => void
   cutSelectedNotes: () => void
@@ -30,6 +31,7 @@ type TopMenuProps = {
   setActiveEditorTab: Dispatch<SetStateAction<EditorTab>>
   setEditMenuOpen: Dispatch<SetStateAction<boolean>>
   setFileMenuOpen: Dispatch<SetStateAction<boolean>>
+  stopCollaboration: () => void
   undoProject: () => void
   updateProjectTitle: (title: string) => void
 }
@@ -39,6 +41,7 @@ export function TopMenu({
   audioFileInputRef,
   canRedo,
   canUndo,
+  collaborationActive,
   copySelectedNotes,
   createNewProject,
   cutSelectedNotes,
@@ -62,6 +65,7 @@ export function TopMenu({
   setActiveEditorTab,
   setEditMenuOpen,
   setFileMenuOpen,
+  stopCollaboration,
   undoProject,
   updateProjectTitle,
 }: TopMenuProps) {
@@ -133,8 +137,12 @@ export function TopMenu({
       />
 
       <div className="top-actions" aria-label="협업 메뉴">
-        <button type="button" className="collaboration-top-button" onPointerDown={openCollaborationDialog}>
-          협업하기
+        <button
+          type="button"
+          className="collaboration-top-button"
+          onPointerDown={collaborationActive ? stopCollaboration : openCollaborationDialog}
+        >
+          {collaborationActive ? '중지하기' : '협업하기'}
         </button>
       </div>
 

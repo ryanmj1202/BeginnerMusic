@@ -1,6 +1,8 @@
-import { getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app'
+﻿import { getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app'
 import {
   doc,
+  deleteDoc,
+  deleteField,
   getDoc,
   getFirestore,
   initializeFirestore,
@@ -17,6 +19,7 @@ export type CollaborationRemoteState = {
   cursor: { x: number; y: number } | null
   notesByTrack: Project['notesByTrack'] | null
   project: Project | null
+  roomDeleted?: boolean
   selectedNoteIds: string[]
 }
 
@@ -29,9 +32,12 @@ type CollaborationRoomDocument = {
   cursors?: Record<string, { x: number; y: number }>
   notesByTrack?: Project['notesByTrack']
   notesUpdatedBy?: string
+  participants?: Record<string, { active: boolean; leftAt?: number }>
   project?: Project
   projectUpdatedBy?: string
 }
+
+const ROOM_EXPIRATION_MS = 3 * 60 * 1000
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -87,6 +93,29 @@ function getRoomRef(roomCode: string) {
   return doc(getCollaborationDatabase(), 'collaborationRooms', roomCode)
 }
 
+function shouldDeleteInactiveRoom(room: CollaborationRoomDocument, now = Date.now()) {
+  const participants = Object.values(room.participants ?? {})
+  if (participants.length < 2 || participants.some((participant) => participant.active)) return false
+
+  const latestLeftAt = Math.max(...participants.map((participant) => participant.leftAt ?? now))
+  return now - latestLeftAt >= ROOM_EXPIRATION_MS
+}
+
+async function deleteRoomIfExpired(roomCode: string) {
+  const roomRef = getRoomRef(roomCode)
+  const roomSnapshot = await getDoc(roomRef)
+  if (!roomSnapshot.exists()) return true
+
+  if (!shouldDeleteInactiveRoom(roomSnapshot.data() as CollaborationRoomDocument)) return false
+
+  try {
+    await deleteDoc(roomRef)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function getOtherSelectedNoteIds(activeSelections: CollaborationRoomDocument['activeSelections'], clientId: string) {
   return Object.entries(activeSelections ?? {})
     .filter(([selectionClientId]) => selectionClientId !== clientId)
@@ -99,7 +128,8 @@ function getOtherCursor(cursors: CollaborationRoomDocument['cursors'], clientId:
 }
 
 export async function createCollaborationRoom(roomCode: string, clientId: string, project: Project) {
-  await setDoc(getRoomRef(roomCode), {
+  const roomRef = getRoomRef(roomCode)
+  const legacyRoom = {
     activeSelections: {
       [clientId]: [],
     },
@@ -109,20 +139,41 @@ export async function createCollaborationRoom(roomCode: string, clientId: string
     notesByTrack: project.notesByTrack,
     notesUpdatedAt: serverTimestamp(),
     notesUpdatedBy: clientId,
-    project,
-    projectUpdatedAt: serverTimestamp(),
-    projectUpdatedBy: clientId,
-  })
+  }
+
+  try {
+    await setDoc(roomRef, {
+      ...legacyRoom,
+      participants: {
+        [clientId]: { active: true },
+      },
+      project,
+      projectUpdatedAt: serverTimestamp(),
+      projectUpdatedBy: clientId,
+    })
+  } catch {
+    await setDoc(roomRef, legacyRoom)
+  }
 }
 
 export async function joinCollaborationRoomOnServer(roomCode: string, clientId: string) {
+  if (await deleteRoomIfExpired(roomCode)) return false
+
   const roomSnapshot = await getDoc(getRoomRef(roomCode))
   if (!roomSnapshot.exists()) return false
 
-  await updateDoc(getRoomRef(roomCode), {
-    [`activeSelections.${clientId}`]: [],
-    updatedAt: serverTimestamp(),
-  })
+  try {
+    await updateDoc(getRoomRef(roomCode), {
+      [`activeSelections.${clientId}`]: [],
+      [`participants.${clientId}`]: { active: true },
+      updatedAt: serverTimestamp(),
+    })
+  } catch {
+    await updateDoc(getRoomRef(roomCode), {
+      [`activeSelections.${clientId}`]: [],
+      updatedAt: serverTimestamp(),
+    })
+  }
   return true
 }
 
@@ -134,7 +185,16 @@ export function subscribeCollaborationRoom(
   let unsubscribe: Unsubscribe = () => {}
 
   unsubscribe = onSnapshot(getRoomRef(roomCode), (snapshot) => {
-    if (!snapshot.exists()) return
+    if (!snapshot.exists()) {
+      onRemoteState({
+        cursor: null,
+        notesByTrack: null,
+        project: null,
+        roomDeleted: true,
+        selectedNoteIds: [],
+      })
+      return
+    }
 
     const room = snapshot.data() as CollaborationRoomDocument
     onRemoteState({
@@ -161,14 +221,18 @@ export async function updateCollaborationNotes(roomCode: string, clientId: strin
 }
 
 export async function updateCollaborationProject(roomCode: string, clientId: string, project: Project) {
-  await updateDoc(getRoomRef(roomCode), {
-    notesByTrack: project.notesByTrack,
-    notesUpdatedAt: serverTimestamp(),
-    notesUpdatedBy: clientId,
-    project,
-    projectUpdatedAt: serverTimestamp(),
-    projectUpdatedBy: clientId,
-  })
+  try {
+    await updateDoc(getRoomRef(roomCode), {
+      notesByTrack: project.notesByTrack,
+      notesUpdatedAt: serverTimestamp(),
+      notesUpdatedBy: clientId,
+      project,
+      projectUpdatedAt: serverTimestamp(),
+      projectUpdatedBy: clientId,
+    })
+  } catch {
+    await updateCollaborationNotes(roomCode, clientId, project.notesByTrack)
+  }
 }
 
 export async function updateCollaborationCursor(roomCode: string, clientId: string, cursor: { x: number; y: number }) {
@@ -184,4 +248,31 @@ export async function updateCollaborationSelection(roomCode: string, clientId: s
   await updateDoc(getRoomRef(roomCode), {
     [`activeSelections.${clientId}`]: noteIds,
   })
+}
+
+export async function leaveCollaborationRoom(roomCode: string, clientId: string) {
+  try {
+    await updateDoc(getRoomRef(roomCode), {
+      [`activeSelections.${clientId}`]: deleteField(),
+      [`cursors.${clientId}`]: deleteField(),
+      [`participants.${clientId}`]: {
+        active: false,
+        leftAt: Date.now(),
+      },
+      updatedAt: serverTimestamp(),
+    })
+  } catch {
+    await updateDoc(getRoomRef(roomCode), {
+      [`activeSelections.${clientId}`]: [],
+      updatedAt: serverTimestamp(),
+    })
+  }
+
+  window.setTimeout(() => {
+    void deleteRoomIfExpired(roomCode).catch(() => {})
+  }, ROOM_EXPIRATION_MS)
+}
+
+export async function deleteCollaborationRoom(roomCode: string) {
+  await deleteDoc(getRoomRef(roomCode))
 }

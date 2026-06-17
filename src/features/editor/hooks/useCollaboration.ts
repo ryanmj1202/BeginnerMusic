@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { Project } from '../../../types/music'
 import {
   createCollaborationRoom,
+  deleteCollaborationRoom,
   getCollaborationErrorMessage,
   getFirebaseConfigError,
   joinCollaborationRoomOnServer,
+  leaveCollaborationRoom,
   requestCollaborationNotes,
   subscribeCollaborationRoom,
   updateCollaborationCursor,
@@ -61,6 +63,7 @@ export function useCollaboration({
   const cursorFrameRef = useRef(0)
   const pendingCursorRef = useRef<{ x: number; y: number } | null>(null)
   const [collaborationCode, setCollaborationCode] = useState<string | null>(null)
+  const collaborationCodeRef = useRef<string | null>(null)
   const [collaborationDialogOpen, setCollaborationDialogOpen] = useState(false)
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<'create' | 'join' | null>(null)
   const [collaborationJoining, setCollaborationJoining] = useState(false)
@@ -84,9 +87,24 @@ export function useCollaboration({
     setCollaborationToast(null)
   }, [])
 
+  const clearCurrentRoom = useCallback(() => {
+    subscriptionRef.current?.unsubscribe()
+    subscriptionRef.current = null
+    collaborationCodeRef.current = null
+    setCollaborationCode(null)
+    setCollaborationDialogOpen(false)
+    setSelectedCollaborationMode(null)
+    setRemoteCursor(null)
+    setRemoteSelectedNoteIds([])
+  }, [])
+
   const connectRoom = useCallback((code: string) => {
     subscriptionRef.current?.unsubscribe()
     subscriptionRef.current = subscribeCollaborationRoom(code, clientIdRef.current, (remoteState) => {
+      if (remoteState.roomDeleted) {
+        clearCurrentRoom()
+        return
+      }
       if (remoteState.cursor) setRemoteCursor(remoteState.cursor)
       setRemoteSelectedNoteIds(remoteState.selectedNoteIds)
 
@@ -104,9 +122,28 @@ export function useCollaboration({
       }
     })
     setCollaborationCode(code)
-  }, [setProject])
+    collaborationCodeRef.current = code
+  }, [clearCurrentRoom, setProject])
+
+  const leaveCurrentRoom = useCallback(() => {
+    const code = collaborationCodeRef.current
+    if (!code) return
+
+    clearCurrentRoom()
+    void leaveCollaborationRoom(code, clientIdRef.current).catch(() => {})
+  }, [clearCurrentRoom])
+
+  const stopCollaboration = useCallback(() => {
+    const code = collaborationCodeRef.current
+    if (!code) return
+
+    clearCurrentRoom()
+    void deleteCollaborationRoom(code).catch(() => leaveCollaborationRoom(code, clientIdRef.current).catch(() => {}))
+  }, [clearCurrentRoom])
 
   const openCreateCollaborationRoom = useCallback(async () => {
+    if (collaborationCodeRef.current) return
+
     const configError = getFirebaseConfigError()
     if (configError) {
       showCollaborationToast(configError, 'error')
@@ -129,6 +166,8 @@ export function useCollaboration({
   }, [])
 
   const joinCollaborationRoom = useCallback(async (code: string) => {
+    if (collaborationCodeRef.current) return
+
     const normalizedCode = code.toUpperCase()
     if (normalizedCode.length !== 5) {
       showCollaborationToast('존재하지 않는 참여 코드입니다.', 'error')
@@ -211,7 +250,14 @@ export function useCollaboration({
     }
   }, [collaborationCode, pianoRollRef])
 
-  useEffect(() => () => subscriptionRef.current?.unsubscribe(), [])
+  useEffect(() => {
+    const leaveOnPageHide = () => leaveCurrentRoom()
+    window.addEventListener('pagehide', leaveOnPageHide)
+    return () => {
+      window.removeEventListener('pagehide', leaveOnPageHide)
+      leaveCurrentRoom()
+    }
+  }, [leaveCurrentRoom])
 
   const collaborationDialogProps = useMemo(() => ({
     closeCollaborationDialog: () => {
@@ -227,6 +273,7 @@ export function useCollaboration({
     openJoinCollaborationRoom,
     selectedCollaborationMode,
     showCollaborationToast,
+    collaborationActive: Boolean(collaborationCode),
   }), [
     collaborationCode,
     collaborationDialogOpen,
@@ -241,12 +288,15 @@ export function useCollaboration({
 
   return {
     collaborationDialogProps,
+    collaborationActive: Boolean(collaborationCode),
     collaborationJoining,
     openCollaborationDialog: () => {
+      if (collaborationCodeRef.current) return
       setCollaborationDialogOpen(true)
       setSelectedCollaborationMode(null)
     },
     remoteCursor,
     remoteSelectedNoteIds,
+    stopCollaboration,
   }
 }
