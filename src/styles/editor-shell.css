@@ -1,7 +1,7 @@
 ﻿.editor-shell {
   position: relative;
   display: grid;
-  grid-template-columns: var(--track-panel-width, 240px) minmax(0, 1fr) var(--detail-panel-width, 320px);
+  grid-template-columns: var(--track-panel-width, 240px) minmax(0, 1fr) var(--detail-panel-width, 360px);
   grid-template-rows: minmax(0, 1fr) 58px;
   grid-template-areas:
     "tracks roll details"
@@ -12,7 +12,7 @@
 }
 
 .editor-shell.is-track-panel-closed {
-  grid-template-columns: 0 minmax(0, 1fr) var(--detail-panel-width, 320px);
+  grid-template-columns: 0 minmax(0, 1fr) var(--detail-panel-width, 360px);
 }
 
 .busy-overlay {

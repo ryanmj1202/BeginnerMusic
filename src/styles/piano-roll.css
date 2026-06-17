@@ -223,6 +223,10 @@
   contain: layout paint;
 }
 
+.piano-roll.is-middle-panning {
+  cursor: grabbing;
+}
+
 .audio-roll .measure-row {
   border-bottom: 1px solid #2a303b;
 }

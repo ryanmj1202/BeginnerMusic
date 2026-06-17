@@ -1,5 +1,6 @@
 ﻿import type {
   Dispatch,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   SetStateAction,
 } from 'react'
@@ -321,9 +322,37 @@ export function DetailPanel({
 
   function updateControlValueFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
     if (!activeNoteControl || !range || editableNotes.length === 0) return
-    if ((event.target as HTMLElement).closest('button,input')) return
+    if (event.button !== 1 && (event.target as HTMLElement).closest('button,input')) return
+    event.preventDefault()
     beginHistoryBatch()
     const target = event.currentTarget
+    if (event.button === 1) {
+      let currentValue = displayValue
+      let lastY = event.clientY
+      const pixelsPerStep = 34
+      target.setPointerCapture?.(event.pointerId)
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const moveSteps = Math.max(-1, Math.min(1, (lastY - moveEvent.clientY) / pixelsPerStep))
+        if (Math.abs(moveSteps) < 0.15) return
+        currentValue = clampNoteControlValue(activeNoteControl.key, currentValue + moveSteps * activeNoteControl.step)
+        lastY = moveEvent.clientY
+        updateControlValue(currentValue)
+      }
+      const handlePointerUp = () => {
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+        window.removeEventListener('pointercancel', handlePointerUp)
+        endHistoryBatch()
+      }
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp)
+      window.addEventListener('pointercancel', handlePointerUp)
+      return
+    }
+    if (event.button !== 0) {
+      endHistoryBatch()
+      return
+    }
     const applyPointerValue = (clientX: number) => {
       const rect = target.getBoundingClientRect()
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
@@ -339,6 +368,12 @@ export function DetailPanel({
     }
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', handlePointerUp)
+  }
+
+  function preventMiddleMouseDefault(event: ReactMouseEvent<HTMLElement>) {
+    if (event.button !== 1) return
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   function toggleAutomationLock() {
@@ -383,7 +418,12 @@ export function DetailPanel({
               <div className="note-control-panel">
                 <strong>{activeNoteControl.label}</strong>
                 <div className="note-control-card">
-                  <div className="note-control-stage" onPointerDown={updateControlValueFromPointer}>
+                  <div
+                    className="note-control-stage"
+                    onAuxClick={preventMiddleMouseDefault}
+                    onMouseDownCapture={preventMiddleMouseDefault}
+                    onPointerDown={updateControlValueFromPointer}
+                  >
                     {renderControlArt(activeNoteControl.key, displayValue)}
                     <div className="note-control-slider-row">
                       <input

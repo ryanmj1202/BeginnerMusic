@@ -84,7 +84,7 @@ export function EditorLayout({
 }: EditorLayoutProps) {
   const [trackPanelOpen, setTrackPanelOpen] = useState(true)
   const [trackPanelWidth, setTrackPanelWidth] = useState(240)
-  const [detailPanelWidth, setDetailPanelWidth] = useState(320)
+  const [detailPanelWidth, setDetailPanelWidth] = useState(360)
   const detailPanelLayoutWidth = detailPanelProps.detailPanelOpen ? detailPanelWidth : 132
 
   function beginTrackPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
@@ -110,7 +110,7 @@ export function EditorLayout({
     event.preventDefault()
     const applyWidth = (clientX: number) => {
       const width = window.innerWidth - clientX
-      setDetailPanelWidth(Math.max(0, Math.min(100, Math.round(width))))
+      setDetailPanelWidth(Math.max(280, Math.min(520, Math.round(width))))
     }
     applyWidth(event.clientX)
     const handlePointerMove = (moveEvent: PointerEvent) => {

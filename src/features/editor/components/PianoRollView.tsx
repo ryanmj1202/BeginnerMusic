@@ -148,6 +148,7 @@ export function PianoRollView({
   zoomRoll,
 }: PianoRollViewProps) {
   const zoomAnchorRef = useRef<{ gridRatio: number, pointerX: number } | null>(null)
+  const middlePanRef = useRef<{ scrollLeft: number, scrollTop: number, x: number, y: number } | null>(null)
   const [timelineSeekingPointerId, setTimelineSeekingPointerId] = useState<number | null>(null)
 
   function seekTimelineFromPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -199,6 +200,14 @@ export function PianoRollView({
   }, [pianoRollRef, rollZoom])
 
   useEffect(() => {
+    function preventMiddleAutoScroll(event: MouseEvent) {
+      if (event.button !== 1) return
+      const target = event.target
+      if (!(target instanceof Element) || !target.closest('.piano-roll')) return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
     function handleRollWheel(event: WheelEvent) {
       const target = event.target
       if (!(target instanceof Element) || !target.closest('.piano-roll')) return
@@ -228,9 +237,51 @@ export function PianoRollView({
       zoomRoll(event.deltaY > 0 ? -1 : 1)
     }
 
+    window.addEventListener('mousedown', preventMiddleAutoScroll, { capture: true })
+    window.addEventListener('auxclick', preventMiddleAutoScroll, { capture: true })
     window.addEventListener('wheel', handleRollWheel, { capture: true, passive: false })
-    return () => window.removeEventListener('wheel', handleRollWheel, { capture: true })
+    return () => {
+      window.removeEventListener('mousedown', preventMiddleAutoScroll, { capture: true })
+      window.removeEventListener('auxclick', preventMiddleAutoScroll, { capture: true })
+      window.removeEventListener('wheel', handleRollWheel, { capture: true })
+    }
   }, [zoomRoll])
+
+  function beginMiddlePan(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 1) return
+    const roll = pianoRollRef.current
+    if (!roll) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    middlePanRef.current = {
+      scrollLeft: roll.scrollLeft,
+      scrollTop: roll.scrollTop,
+      x: event.clientX,
+      y: event.clientY,
+    }
+    roll.classList.add('is-middle-panning')
+    roll.setPointerCapture?.(event.pointerId)
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const pan = middlePanRef.current
+      if (!pan) return
+      moveEvent.preventDefault()
+      roll.scrollLeft = pan.scrollLeft - (moveEvent.clientX - pan.x)
+      roll.scrollTop = pan.scrollTop - (moveEvent.clientY - pan.y)
+    }
+    const stopMiddlePan = () => {
+      middlePanRef.current = null
+      roll.classList.remove('is-middle-panning')
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopMiddlePan)
+      window.removeEventListener('pointercancel', stopMiddlePan)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false })
+    window.addEventListener('pointerup', stopMiddlePan)
+    window.addEventListener('pointercancel', stopMiddlePan)
+  }
 
   return (
     <>
@@ -263,6 +314,7 @@ export function PianoRollView({
       ) : (
         <div
           className="piano-roll"
+          onPointerDownCapture={beginMiddlePan}
           ref={pianoRollRef}
           style={rollShellStyle}
         >

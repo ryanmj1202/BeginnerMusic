@@ -16,6 +16,7 @@ import type { Project } from '../../../types/music'
 export type CollaborationRemoteState = {
   cursor: { x: number; y: number } | null
   notesByTrack: Project['notesByTrack'] | null
+  project: Project | null
   selectedNoteIds: string[]
 }
 
@@ -28,6 +29,8 @@ type CollaborationRoomDocument = {
   cursors?: Record<string, { x: number; y: number }>
   notesByTrack?: Project['notesByTrack']
   notesUpdatedBy?: string
+  project?: Project
+  projectUpdatedBy?: string
 }
 
 const firebaseConfig: FirebaseOptions = {
@@ -95,7 +98,7 @@ function getOtherCursor(cursors: CollaborationRoomDocument['cursors'], clientId:
   return remoteCursorEntry?.[1] ?? null
 }
 
-export async function createCollaborationRoom(roomCode: string, clientId: string, notesByTrack: Project['notesByTrack']) {
+export async function createCollaborationRoom(roomCode: string, clientId: string, project: Project) {
   await setDoc(getRoomRef(roomCode), {
     activeSelections: {
       [clientId]: [],
@@ -103,9 +106,12 @@ export async function createCollaborationRoom(roomCode: string, clientId: string
     createdAt: serverTimestamp(),
     createdBy: clientId,
     cursors: {},
-    notesByTrack,
+    notesByTrack: project.notesByTrack,
     notesUpdatedAt: serverTimestamp(),
     notesUpdatedBy: clientId,
+    project,
+    projectUpdatedAt: serverTimestamp(),
+    projectUpdatedBy: clientId,
   })
 }
 
@@ -134,6 +140,7 @@ export function subscribeCollaborationRoom(
     onRemoteState({
       cursor: getOtherCursor(room.cursors, clientId),
       notesByTrack: room.notesUpdatedBy === clientId ? null : room.notesByTrack ?? null,
+      project: room.projectUpdatedBy === clientId ? null : room.project ?? null,
       selectedNoteIds: getOtherSelectedNoteIds(room.activeSelections, clientId),
     })
   })
@@ -150,6 +157,17 @@ export async function updateCollaborationNotes(roomCode: string, clientId: strin
     notesByTrack,
     notesUpdatedAt: serverTimestamp(),
     notesUpdatedBy: clientId,
+  })
+}
+
+export async function updateCollaborationProject(roomCode: string, clientId: string, project: Project) {
+  await updateDoc(getRoomRef(roomCode), {
+    notesByTrack: project.notesByTrack,
+    notesUpdatedAt: serverTimestamp(),
+    notesUpdatedBy: clientId,
+    project,
+    projectUpdatedAt: serverTimestamp(),
+    projectUpdatedBy: clientId,
   })
 }
 

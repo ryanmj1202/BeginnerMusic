@@ -8,7 +8,7 @@ import {
   requestCollaborationNotes,
   subscribeCollaborationRoom,
   updateCollaborationCursor,
-  updateCollaborationNotes,
+  updateCollaborationProject,
   updateCollaborationSelection,
   type CollaborationSubscription,
 } from '../utils/collaborationServer'
@@ -57,7 +57,7 @@ export function useCollaboration({
 }: UseCollaborationOptions) {
   const clientIdRef = useRef(getClientId())
   const subscriptionRef = useRef<CollaborationSubscription | null>(null)
-  const applyingRemoteNotesRef = useRef(false)
+  const applyingRemoteProjectRef = useRef(false)
   const cursorFrameRef = useRef(0)
   const pendingCursorRef = useRef<{ x: number; y: number } | null>(null)
   const [collaborationCode, setCollaborationCode] = useState<string | null>(null)
@@ -90,14 +90,16 @@ export function useCollaboration({
       if (remoteState.cursor) setRemoteCursor(remoteState.cursor)
       setRemoteSelectedNoteIds(remoteState.selectedNoteIds)
 
-      if (remoteState.notesByTrack) {
-        applyingRemoteNotesRef.current = true
-        setProject((current) => ({
-          ...current,
-          notesByTrack: remoteState.notesByTrack ?? current.notesByTrack,
-        }))
+      if (remoteState.project || remoteState.notesByTrack) {
+        applyingRemoteProjectRef.current = true
+        setProject((current) => (
+          remoteState.project ?? {
+            ...current,
+            notesByTrack: remoteState.notesByTrack ?? current.notesByTrack,
+          }
+        ))
         window.setTimeout(() => {
-          applyingRemoteNotesRef.current = false
+          applyingRemoteProjectRef.current = false
         }, 0)
       }
     })
@@ -113,14 +115,14 @@ export function useCollaboration({
 
     const code = createCode()
     try {
-      await createCollaborationRoom(code, clientIdRef.current, projectRef.current?.notesByTrack ?? project.notesByTrack)
+      await createCollaborationRoom(code, clientIdRef.current, projectRef.current ?? project)
       setSelectedCollaborationMode('create')
       connectRoom(code)
     } catch (error) {
       console.error(error)
       showCollaborationToast(getCollaborationErrorMessage(error), 'error')
     }
-  }, [connectRoom, project.notesByTrack, projectRef, showCollaborationToast])
+  }, [connectRoom, project, projectRef, showCollaborationToast])
 
   const openJoinCollaborationRoom = useCallback(() => {
     setSelectedCollaborationMode('join')
@@ -162,10 +164,10 @@ export function useCollaboration({
   }, [connectRoom, showCollaborationToast])
 
   useEffect(() => {
-    if (!collaborationCode || applyingRemoteNotesRef.current) return
+    if (!collaborationCode || applyingRemoteProjectRef.current) return
 
-    void updateCollaborationNotes(collaborationCode, clientIdRef.current, project.notesByTrack).catch(() => {})
-  }, [collaborationCode, project.notesByTrack])
+    void updateCollaborationProject(collaborationCode, clientIdRef.current, project).catch(() => {})
+  }, [collaborationCode, project])
 
   useEffect(() => {
     if (!collaborationCode) return
