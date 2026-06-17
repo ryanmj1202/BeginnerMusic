@@ -16,6 +16,7 @@ import {
 } from '../utils/collaborationServer'
 
 const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+const COLLABORATION_SESSION_MS = 3 * 60 * 1000
 
 type RemoteCursor = {
   x: number
@@ -61,6 +62,7 @@ export function useCollaboration({
   const subscriptionRef = useRef<CollaborationSubscription | null>(null)
   const applyingRemoteProjectRef = useRef(false)
   const cursorFrameRef = useRef(0)
+  const sessionTimeoutRef = useRef<number | null>(null)
   const pendingCursorRef = useRef<{ x: number; y: number } | null>(null)
   const [collaborationCode, setCollaborationCode] = useState<string | null>(null)
   const collaborationCodeRef = useRef<string | null>(null)
@@ -88,6 +90,10 @@ export function useCollaboration({
   }, [])
 
   const clearCurrentRoom = useCallback(() => {
+    if (sessionTimeoutRef.current !== null) {
+      window.clearTimeout(sessionTimeoutRef.current)
+      sessionTimeoutRef.current = null
+    }
     subscriptionRef.current?.unsubscribe()
     subscriptionRef.current = null
     collaborationCodeRef.current = null
@@ -123,6 +129,10 @@ export function useCollaboration({
     })
     setCollaborationCode(code)
     collaborationCodeRef.current = code
+    if (sessionTimeoutRef.current !== null) window.clearTimeout(sessionTimeoutRef.current)
+    sessionTimeoutRef.current = window.setTimeout(() => {
+      stopCollaborationRef.current()
+    }, COLLABORATION_SESSION_MS)
   }, [clearCurrentRoom, setProject])
 
   const leaveCurrentRoom = useCallback(() => {
@@ -135,11 +145,16 @@ export function useCollaboration({
 
   const stopCollaboration = useCallback(() => {
     const code = collaborationCodeRef.current
-    if (!code) return
+    if (!code) {
+      clearCurrentRoom()
+      return
+    }
 
     clearCurrentRoom()
     void deleteCollaborationRoom(code).catch(() => leaveCollaborationRoom(code, clientIdRef.current).catch(() => {}))
   }, [clearCurrentRoom])
+  const stopCollaborationRef = useRef(stopCollaboration)
+  stopCollaborationRef.current = stopCollaboration
 
   const openCreateCollaborationRoom = useCallback(async () => {
     if (collaborationCodeRef.current) return
@@ -273,7 +288,7 @@ export function useCollaboration({
     openJoinCollaborationRoom,
     selectedCollaborationMode,
     showCollaborationToast,
-    collaborationActive: Boolean(collaborationCode),
+    collaborationActive: Boolean(collaborationCode) || collaborationDialogOpen,
   }), [
     collaborationCode,
     collaborationDialogOpen,
@@ -288,10 +303,10 @@ export function useCollaboration({
 
   return {
     collaborationDialogProps,
-    collaborationActive: Boolean(collaborationCode),
+    collaborationActive: Boolean(collaborationCode) || collaborationDialogOpen,
     collaborationJoining,
     openCollaborationDialog: () => {
-      if (collaborationCodeRef.current) return
+      if (collaborationCodeRef.current || collaborationDialogOpen) return
       setCollaborationDialogOpen(true)
       setSelectedCollaborationMode(null)
     },
