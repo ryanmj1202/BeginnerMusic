@@ -18,7 +18,7 @@ export function useEditorDerived(
   const activeNoteControl = useMemo<ActiveNoteControl>(() => {
     if (activeDetailTerm === '세기') return makeControl('velocity', '세기', 0.05, 1, 0.01)
     if (activeDetailTerm === '휘기') {
-      return { key: 'pitchBend', label: '휘기', min: -2, max: 2, step: 0.1, format: (value) => value.toFixed(1) }
+      return { key: 'pitchBend', label: '휘기', min: -12, max: 12, step: 0.1, format: (value) => value.toFixed(1) }
     }
     if (activeDetailTerm === '떨림') return makeControl('modulation', '떨림', 0, 1, 0.01)
     if (activeDetailTerm === '울림') return makeControl('reverb', '울림', 0, 1, 0.01)

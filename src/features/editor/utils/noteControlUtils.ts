@@ -51,7 +51,7 @@ export function clampNoteControlValue(
   key: EditableNoteControlKey,
   rawValue: number,
 ) {
-  if (key === 'pitchBend') return Math.max(-2, Math.min(2, rawValue))
+  if (key === 'pitchBend') return Math.max(-12, Math.min(12, rawValue))
   if (key === 'pan') return Math.max(-1, Math.min(1, rawValue))
   if (key === 'modulation' || key === 'reverb') return Math.max(0, Math.min(1, rawValue))
   if (key === 'velocity') return Math.max(0.05, Math.min(1, rawValue))

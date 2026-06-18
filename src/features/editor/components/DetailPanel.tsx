@@ -61,7 +61,7 @@ type DetailPanelProps = {
 }
 
 function getControlRange(key: EditableNoteControlKey) {
-  if (key === 'pitchBend') return { min: -2, max: 2, step: 0.01 }
+  if (key === 'pitchBend') return { min: -12, max: 12, step: 0.01 }
   if (key === 'pan') return { min: -1, max: 1, step: 0.01 }
   if (key === 'velocity') return { min: 0.05, max: 1, step: 0.01 }
   return { min: 0, max: 1, step: 0.01 }
@@ -74,7 +74,7 @@ function formatControlValue(control: ActiveNoteControl, value: number) {
 
 function getNormalizedValue(key: EditableNoteControlKey, value: number) {
   if (key === 'pan') return (value + 1) / 2
-  if (key === 'pitchBend') return (value + 2) / 4
+  if (key === 'pitchBend') return (value + 12) / 24
   return value
 }
 
@@ -241,7 +241,7 @@ export function DetailPanel({
 
   useEffect(() => {
     setDraftControlValue(null)
-  }, [activeNoteControl?.key, automationSignature, currentBeat, selectedNote?.id, selectedValue])
+  }, [activeNoteControl?.key, automationSignature, selectedNote?.id, selectedValue])
 
   useEffect(() => {
     return () => {

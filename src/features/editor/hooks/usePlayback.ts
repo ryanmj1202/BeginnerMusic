@@ -1,4 +1,5 @@
 ﻿import * as Tone from 'tone'
+import { useEffect, useRef } from 'react'
 import { expandProjectForArrangement } from '../../../lib/arrangement/trackArrangement'
 import {
   createInstrument,
@@ -33,6 +34,13 @@ import { getAutomatedNoteControlValue, getNoteControlAutomation } from '../utils
 import { getMinimumPlaybackDrumSeconds } from '../utils/playbackDuration'
 import type { UsePlaybackOptions } from './playbackTypes'
 
+type ActiveRoutedNote = {
+  instrument: ReturnType<typeof createInstrument>
+  note: Note
+  pitchShift: Tone.PitchShift | null
+  sessionId: number
+}
+
 export function usePlayback({
   activeAudioElementsRef,
   activeAudioNodesRef,
@@ -62,6 +70,31 @@ export function usePlayback({
   totalBeats,
   totalBeatsRef,
 }: UsePlaybackOptions) {
+  const activeRoutedNotesRef = useRef<Set<ActiveRoutedNote>>(new Set())
+
+  useEffect(() => {
+    if (!isPlaying || activeRoutedNotesRef.current.size === 0) return
+
+    const currentBeat = playbackBeatRef.current
+    activeRoutedNotesRef.current.forEach((activeNote) => {
+      if (activeNote.sessionId !== playbackSessionRef.current) return
+      const note = Object.values(projectRef.current.notesByTrack)
+        .flat()
+        .find((item) => item.id === activeNote.note.id)
+      if (!note) return
+
+      const beatOffset = currentBeat - note.startBeat
+      if (beatOffset < 0 || beatOffset > note.durationBeats) return
+
+      const pitchBend = getAutomatedNoteControlValue(note, 'pitchBend', beatOffset)
+      if (activeNote.pitchShift) {
+        activeNote.pitchShift.pitch = pitchBend
+      } else {
+        activeNote.instrument.setPitchBend?.(pitchBend * 100, Tone.now())
+      }
+    })
+  })
+
   function setManagedPlaybackTimeout(callback: () => void, delayMs: number) {
     const timeoutId = window.setTimeout(() => {
       activeTimeoutsRef.current = activeTimeoutsRef.current.filter((item) => item !== timeoutId)
@@ -246,6 +279,7 @@ export function usePlayback({
     })
     activeInstrumentsRef.current = []
     activePlaybackTracksRef.current = []
+    activeRoutedNotesRef.current.clear()
     playbackTempoTimelineRef.current = []
     playbackStartSecondsRef.current = 0
     lastPlayheadAutoScrollAtRef.current = 0
@@ -269,7 +303,7 @@ export function usePlayback({
       0.04,
       getSecondsBetweenBeatsFromTimeline(timeline, playbackStartBeat, playbackEndBeat),
     )
-    const delayMs = timing?.delayMs ?? Math.max(
+    const baseDelayMs = timing?.delayMs ?? Math.max(
       0,
       (getSecondsAtBeatFromTimeline(timeline, note.startBeat) - getSecondsAtBeatFromTimeline(timeline, currentBeat)) * 1000,
     )
@@ -338,25 +372,37 @@ export function usePlayback({
     const notePan = Math.max(-1, Math.min(1, panSchedule[0].value))
     const routedPan = Math.max(-1, Math.min(1, (track.pan ?? 0) + notePan))
     const notePitch = note.pitch
-    setManagedPlaybackTimeout(() => {
+    const pitchShiftWindowSize = 0.04
+    const pitchShiftLatencySeconds = hasPitchGlide ? pitchShiftWindowSize * 5 : 0
+    const routedDuration = track.isDrum
+      ? getMinimumPlaybackDrumSeconds(note.pitch, remainingDurationSeconds)
+      : remainingDurationSeconds
+    const noteModulation = track.isDrum ? 0 : Math.max(0, Math.min(1, modulationSchedule[0].value))
+    const noteReverb = track.isDrum ? 0 : Math.max(0, Math.min(1, reverbSchedule[0].value))
+    const noteVelocity = Math.max(0.001, hasGainGlide ? 1 : gainSchedule[0].value)
+    const needsRouting =
+      hasPitchGlide ||
+      hasGainGlide ||
+      hasPanGlide ||
+      hasModulationGlide ||
+      hasReverbGlide ||
+      Math.abs(notePan) > 0.01 ||
+      noteModulation > 0.01 ||
+      noteReverb > 0.01
+    const routedNoteInstrument = needsRouting
+      ? createInstrument(track.instrumentId, 'playback', { isolatedSoundFont: !track.isDrum })
+      : null
+    const routeReadyStartMs = performance.now()
+    const scheduleNoteStart = () => {
+      const readyWaitMs = performance.now() - routeReadyStartMs
+      const startDelayMs = Math.max(
+        0,
+        baseDelayMs - readyWaitMs - (hasPitchGlide && offsetBeat <= 0 ? pitchShiftLatencySeconds * 1000 : 0),
+      )
+      setManagedPlaybackTimeout(() => {
       if (sessionId !== playbackSessionRef.current) return
       markPlaybackPitchPressed(notePitch)
 
-      const routedDuration = track.isDrum
-        ? getMinimumPlaybackDrumSeconds(note.pitch, remainingDurationSeconds)
-        : remainingDurationSeconds
-      const noteModulation = track.isDrum ? 0 : Math.max(0, Math.min(1, modulationSchedule[0].value))
-      const noteReverb = track.isDrum ? 0 : Math.max(0, Math.min(1, reverbSchedule[0].value))
-      const noteVelocity = Math.max(0.001, hasGainGlide ? 1 : gainSchedule[0].value)
-      const needsRouting =
-        hasPitchGlide ||
-        hasGainGlide ||
-        hasPanGlide ||
-        hasModulationGlide ||
-        hasReverbGlide ||
-        Math.abs(notePan) > 0.01 ||
-        noteModulation > 0.01 ||
-        noteReverb > 0.01
       if (!needsRouting) {
         track.instrument.triggerAttackRelease(
           noteInput,
@@ -367,7 +413,9 @@ export function usePlayback({
         return
       }
 
-      const gain = hasGainGlide ? new Tone.Gain(Math.max(0.0001, gainSchedule[0].value)).toDestination() : null
+      const gain = hasGainGlide || hasPitchGlide
+        ? new Tone.Gain(hasPitchGlide && offsetBeat <= 0 ? 0.0001 : Math.max(0.0001, gainSchedule[0].value)).toDestination()
+        : null
       const panner =
         hasPanGlide || Math.abs(notePan) > 0.01
           ? new Tone.Panner(routedPan)
@@ -377,7 +425,7 @@ export function usePlayback({
         ? new Tone.Vibrato(6.8, Math.min(0.18, noteModulation * 0.18))
         : null
       const pitchShift = hasPitchGlide
-        ? new Tone.PitchShift({ pitch: pitchBendSchedule[0].value, windowSize: 0.04 })
+        ? new Tone.PitchShift({ pitch: pitchBendSchedule[0].value, windowSize: pitchShiftWindowSize })
         : null
       const echo = hasReverbGlide || noteReverb > 0.01
         ? new Tone.FeedbackDelay({
@@ -386,15 +434,15 @@ export function usePlayback({
           wet: Math.min(0.58, 0.18 + noteReverb * 0.4),
         })
         : null
-      const noteInstrument = createInstrument(track.instrumentId, 'playback', { isolatedSoundFont: !track.isDrum })
-      void waitForInstrumentReady(noteInstrument).then(() => {
-        if (sessionId !== playbackSessionRef.current) {
+      const noteInstrument = routedNoteInstrument
+      {
+        if (sessionId !== playbackSessionRef.current || !noteInstrument) {
           panner?.dispose()
           gain?.dispose()
           pitchShift?.dispose()
           vibrato?.dispose()
           echo?.dispose()
-          noteInstrument.dispose()
+          noteInstrument?.dispose()
           return
         }
 
@@ -429,7 +477,17 @@ export function usePlayback({
         }
 
         const now = Tone.now()
+        const audibleStart = now + (hasPitchGlide && offsetBeat <= 0 ? pitchShiftLatencySeconds : 0)
+        if (hasPitchGlide && gain) {
+          gain.gain.setValueAtTime(0.0001, now)
+          gain.gain.linearRampToValueAtTime(Math.max(0.0001, gainSchedule[0].value), audibleStart + 0.004)
+        }
         const getPointTime = (beatOffset: number) => now + getSecondsBetweenBeatsFromTimeline(
+          timeline,
+          playbackStartBeat,
+          note.startBeat + beatOffset,
+        )
+        const getAudiblePointTime = (beatOffset: number) => audibleStart + getSecondsBetweenBeatsFromTimeline(
           timeline,
           playbackStartBeat,
           note.startBeat + beatOffset,
@@ -440,7 +498,7 @@ export function usePlayback({
           mapValue: (value: number) => number,
         ) => {
           schedule.slice(1).forEach((point) => {
-            param.linearRampToValueAtTime(mapValue(point.value), getPointTime(point.beatOffset))
+            param.linearRampToValueAtTime(mapValue(point.value), getAudiblePointTime(point.beatOffset))
           })
         }
         if (hasPitchGlide) {
@@ -462,7 +520,9 @@ export function usePlayback({
             }
             previousPoint = point
           })
-          window.setTimeout(() => pitchTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId)), routedDuration * 1000 + 100)
+          window.setTimeout(() => {
+            pitchTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+          }, (routedDuration + pitchShiftLatencySeconds) * 1000 + 100)
         }
         if (hasPanGlide && panner) {
           rampNumberParam(panner.pan, panSchedule, (value) =>
@@ -489,24 +549,43 @@ export function usePlayback({
           )
         }
         if (hasGainGlide && gain) {
-          let previousTime = now
+          let previousTime = audibleStart
           gainSchedule.slice(1).forEach((point) => {
-            const pointTime = now + getSecondsBetweenBeatsFromTimeline(
-              timeline,
-              playbackStartBeat,
-              note.startBeat + point.beatOffset,
-            )
+            const pointTime = getAudiblePointTime(point.beatOffset)
             gain.gain.linearRampToValueAtTime(Math.max(0.0001, point.value), previousTime + Math.max(0.001, pointTime - previousTime))
             previousTime = pointTime
           })
         }
-        noteInstrument.triggerAttackRelease(
-          noteInput,
-          routedDuration,
-          now,
-          noteVelocity,
-        )
+        if (hasPitchGlide) {
+          const sustainSegmentBeats = 2
+          const overlapSeconds = 0.12
+          let segmentStartBeat = playbackStartBeat
+          while (segmentStartBeat < playbackEndBeat) {
+            const segmentEndBeat = Math.min(playbackEndBeat, segmentStartBeat + sustainSegmentBeats)
+            const segmentDelaySeconds = getSecondsBetweenBeatsFromTimeline(timeline, playbackStartBeat, segmentStartBeat)
+            const segmentDurationSeconds =
+              getSecondsBetweenBeatsFromTimeline(timeline, segmentStartBeat, segmentEndBeat) +
+              (segmentEndBeat < playbackEndBeat ? overlapSeconds : pitchShiftLatencySeconds)
+            noteInstrument.triggerAttackRelease(
+              noteInput,
+              Math.max(0.04, segmentDurationSeconds),
+              now + segmentDelaySeconds,
+              noteVelocity,
+            )
+            segmentStartBeat = segmentEndBeat
+          }
+        } else {
+          noteInstrument.triggerAttackRelease(
+            noteInput,
+            routedDuration,
+            now,
+            noteVelocity,
+          )
+        }
+        const activeRoutedNote = { instrument: noteInstrument, note, pitchShift, sessionId }
+        activeRoutedNotesRef.current.add(activeRoutedNote)
         window.setTimeout(() => {
+          activeRoutedNotesRef.current.delete(activeRoutedNote)
           noteInstrument.triggerRelease(undefined)
           noteInstrument.dispose()
           vibrato?.dispose()
@@ -514,14 +593,24 @@ export function usePlayback({
           pitchShift?.dispose()
           panner?.dispose()
           gain?.dispose()
-        }, Math.max(160, routedDuration * 1000 + 450 + noteReverb * 1800))
-      })
-    }, delayMs)
+        }, Math.max(160, (routedDuration + pitchShiftLatencySeconds) * 1000 + 450 + noteReverb * 1800))
+      }
+      }, Math.max(
+        0,
+        startDelayMs,
+      ))
+    }
+
+    if (routedNoteInstrument) {
+      void waitForInstrumentReady(routedNoteInstrument).then(scheduleNoteStart)
+    } else {
+      scheduleNoteStart()
+    }
 
     setManagedPlaybackTimeout(() => {
       if (sessionId !== playbackSessionRef.current) return
       markPlaybackPitchReleased(notePitch)
-    }, delayMs + remainingDurationSeconds * 1000)
+    }, baseDelayMs + remainingDurationSeconds * 1000)
   }
 
   function schedulePlaybackWindow(currentBeat: number) {
@@ -811,6 +900,7 @@ export function usePlayback({
       const instrument = createInstrument(track.instrumentId)
       const hasEffectNotes = notes.some((note) => (
         Math.abs(note.pan ?? 0) > 0.01 ||
+        (!isDrumInstrument(track.instrumentId) && getNoteControlAutomation(note, 'pitchBend').length > 0) ||
         (!isDrumInstrument(track.instrumentId) && ((note.modulation ?? 0) > 0.01 || (note.reverb ?? 0) > 0.01))
       ))
       const effectInstrument = hasEffectNotes
