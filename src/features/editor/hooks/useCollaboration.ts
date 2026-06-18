@@ -288,7 +288,7 @@ export function useCollaboration({
     openJoinCollaborationRoom,
     selectedCollaborationMode,
     showCollaborationToast,
-    collaborationActive: Boolean(collaborationCode) || collaborationDialogOpen,
+    collaborationActive: Boolean(collaborationCode),
   }), [
     collaborationCode,
     collaborationDialogOpen,
@@ -303,7 +303,7 @@ export function useCollaboration({
 
   return {
     collaborationDialogProps,
-    collaborationActive: Boolean(collaborationCode) || collaborationDialogOpen,
+    collaborationActive: Boolean(collaborationCode),
     collaborationJoining,
     openCollaborationDialog: () => {
       if (collaborationCodeRef.current || collaborationDialogOpen) return
