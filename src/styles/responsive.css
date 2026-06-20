@@ -11,7 +11,7 @@
 
   .editor-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(560px, 1fr) 220px 58px;
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr) minmax(0, 190px) auto;
     grid-template-areas:
       "tracks"
       "roll"
@@ -29,7 +29,7 @@
   }
 
   .editor-shell.is-track-panel-closed {
-    grid-template-rows: minmax(560px, 1fr) 220px 58px;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 190px) auto;
     grid-template-areas:
       "roll"
       "details"
@@ -39,6 +39,7 @@
   .track-panel {
     border-right: 0;
     border-bottom: 1px solid #12151b;
+    max-height: 190px;
   }
 
   .track-list {
@@ -46,7 +47,7 @@
   }
 
   .piano-roll {
-    height: 560px;
+    height: 100%;
   }
 
   .terminology-strip {
@@ -85,9 +86,14 @@
     grid-template-columns: 82px minmax(100px, 1fr) 42px;
   }
 
+  .detail-footer,
   .transport-bar {
     grid-template-columns: 1fr;
     align-items: stretch;
     padding: 0.6rem;
+    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom));
+    max-height: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
   }
 }
