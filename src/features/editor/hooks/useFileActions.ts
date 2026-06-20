@@ -5,6 +5,7 @@
   MutableRefObject,
   SetStateAction,
 } from 'react'
+import { useEffect } from 'react'
 import { exportMp3Project } from '../../../lib/audio/exportMp3'
 import { exportMidiProject } from '../../../lib/midi/exportMidi'
 import { importMidiProject } from '../../../lib/midi/importMidi'
@@ -84,14 +85,11 @@ export function useFileActions({
   snapBeatToGrid,
   totalBeats,
 }: UseFileActionsOptions) {
-  void audioFileInputRef
-  void isRecordingVoice
-  void mediaRecorderRef
-  void recordingChunksRef
-  void recordingStartBeatRef
-  void recordingStartMsRef
-  void selectedTrack
-  void setIsRecordingVoice
+  useEffect(() => () => {
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') recorder.stop()
+    recorder?.stream.getTracks().forEach((track) => track.stop())
+  }, [mediaRecorderRef])
 
   function createNewProject() {
     resetPlayback()
@@ -123,13 +121,12 @@ export function useFileActions({
     }))
   }
 
-  async function addAudioFileAsTrack(file: File) {
+  async function addAudioClipAsNewTrack(blob: Blob, name: string, durationSeconds?: number, startBeatOverride?: number) {
     const trackId = createId('track')
-    const name = file.name.replace(/\.[^.]+$/, '') || '오디오 파일'
-    const dataUrl = await blobToDataUrl(file)
-    const resolvedDurationSeconds = await getAudioDurationFromDataUrl(dataUrl)
-    const waveform = await getAudioWaveform(file)
-    const startBeat = snapBeatToGrid(getCurrentPlaybackBeat())
+    const dataUrl = await blobToDataUrl(blob)
+    const resolvedDurationSeconds = durationSeconds ?? await getAudioDurationFromDataUrl(dataUrl)
+    const waveform = await getAudioWaveform(blob)
+    const startBeat = snapBeatToGrid(startBeatOverride ?? getCurrentPlaybackBeat())
     const nextTrack: Track = createAudioTrack(projectRef.current, trackId, name)
     const clip = createAudioClip(projectRef.current, trackId, name, dataUrl, startBeat, totalBeats, resolvedDurationSeconds, waveform)
 
@@ -145,17 +142,110 @@ export function useFileActions({
     setActiveEditorTab('piano-roll')
   }
 
+  async function addAudioFileAsTrack(file: File) {
+    const name = file.name.replace(/\.[^.]+$/, '') || '오디오 파일'
+    await addAudioClipAsNewTrack(file, name)
+  }
+
   function openAudioUpload() {
-    return
+    audioFileInputRef.current?.click()
   }
 
   async function importAudioFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('audio/'))
     event.target.value = ''
-    return
+    if (files.length === 0) return
+
+    try {
+      if (selectedTrack?.kind === 'audio' || selectedTrack?.instrumentId === 'audio-track') {
+        for (const file of files) {
+          await addAudioClipToTrack(selectedTrack.id, file, file.name.replace(/\.[^.]+$/, '') || '오디오 파일')
+        }
+      } else {
+        for (const file of files) {
+          await addAudioFileAsTrack(file)
+        }
+      }
+    } catch {
+      alert('오디오 파일을 불러오지 못했습니다. 지원되는 소리 파일인지 확인해 주세요.')
+    }
   }
 
   async function toggleVoiceRecording() {
-    return
+    if (isRecordingVoice) {
+      mediaRecorderRef.current?.stop()
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert('이 브라우저에서는 마이크 녹음을 사용할 수 없습니다.')
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+      ].find((type) => MediaRecorder.isTypeSupported(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+
+      recordingChunksRef.current = []
+      recordingStartBeatRef.current = getCurrentPlaybackBeat()
+      recordingStartMsRef.current = performance.now()
+      mediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop())
+        mediaRecorderRef.current = null
+        recordingChunksRef.current = []
+        setIsRecordingVoice(false)
+        alert('녹음 중 오류가 발생했습니다.')
+      }
+      recorder.onstop = () => {
+        const chunks = recordingChunksRef.current
+        const durationSeconds = Math.max(0.1, (performance.now() - recordingStartMsRef.current) / 1000)
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+        const startBeat = recordingStartBeatRef.current
+
+        stream.getTracks().forEach((track) => track.stop())
+        mediaRecorderRef.current = null
+        recordingChunksRef.current = []
+        setIsRecordingVoice(false)
+
+        if (blob.size === 0) {
+          alert('녹음된 소리가 없습니다.')
+          return
+        }
+
+        const recordedAt = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        const name = `마이크 녹음 ${recordedAt}`
+        const audioTrack = selectedTrack?.kind === 'audio' || selectedTrack?.instrumentId === 'audio-track'
+          ? selectedTrack
+          : null
+
+        void (audioTrack
+          ? addAudioClipToTrack(audioTrack.id, blob, name, durationSeconds, startBeat)
+          : addAudioClipAsNewTrack(blob, name, durationSeconds, startBeat)
+        ).catch(() => {
+          alert('녹음 파일을 프로젝트에 추가하지 못했습니다.')
+        })
+      }
+
+      recorder.start()
+      setIsRecordingVoice(true)
+    } catch (error) {
+      setIsRecordingVoice(false)
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        alert('마이크 권한이 거부되었습니다. 브라우저 권한 설정을 확인해 주세요.')
+        return
+      }
+      alert('마이크를 시작하지 못했습니다. 마이크 연결 상태를 확인해 주세요.')
+    }
   }
 
   function saveProjectFile() {
@@ -261,6 +351,12 @@ export function useFileActions({
     if (projectFile) {
       loadProjectFromFile(projectFile)
       return
+    }
+    const audioFiles = files.filter((file) => file.type.startsWith('audio/'))
+    if (audioFiles.length > 0) {
+      void Promise.all(audioFiles.map((file) => addAudioFileAsTrack(file))).catch(() => {
+        alert('오디오 파일을 불러오지 못했습니다. 지원되는 소리 파일인지 확인해 주세요.')
+      })
     }
   }
 

@@ -359,6 +359,11 @@
   margin: 0.25rem 0 0.35rem 2.65rem;
 }
 
+.add-track-button.is-recording {
+  border-color: rgba(255, 105, 105, 0.62);
+  color: #ffd6d6;
+}
+
 
 .instrument-menu {
   position: absolute;

@@ -10,11 +10,9 @@ import {
   stopPreviewNoteImmediately,
   waitForInstrumentReady,
 } from '../../../lib/audio/toneTransport'
-import { getWorkstationLoopSettings } from '../../../lib/workstationLoop'
 import type {
   Note,
   Project,
-  Track,
 } from '../../../types/music'
 import {
   PLAYBACK_LOOKAHEAD_BEATS,
@@ -32,6 +30,12 @@ import type {
 } from '../types'
 import { getAutomatedNoteControlValue, getNoteControlAutomation } from '../utils/noteControlUtils'
 import { getMinimumPlaybackDrumSeconds } from '../utils/playbackDuration'
+import {
+  getFirstNoteIndexAtBeat,
+  getPlaybackContentEndBeat,
+  getPlaybackLoopState,
+  getPreparedPlaybackNotes,
+} from '../utils/playbackNoteUtils'
 import type { UsePlaybackOptions } from './playbackTypes'
 
 type ActiveRoutedNote = {
@@ -76,11 +80,14 @@ export function usePlayback({
     if (!isPlaying || activeRoutedNotesRef.current.size === 0) return
 
     const currentBeat = playbackBeatRef.current
+    const notesById = new Map<string, Note>()
+    Object.values(projectRef.current.notesByTrack).forEach((notes) => {
+      notes.forEach((note) => notesById.set(note.id, note))
+    })
+
     activeRoutedNotesRef.current.forEach((activeNote) => {
       if (activeNote.sessionId !== playbackSessionRef.current) return
-      const note = Object.values(projectRef.current.notesByTrack)
-        .flat()
-        .find((item) => item.id === activeNote.note.id)
+      const note = notesById.get(activeNote.note.id)
       if (!note) return
 
       const beatOffset = currentBeat - note.startBeat
@@ -103,41 +110,6 @@ export function usePlayback({
 
     activeTimeoutsRef.current.push(timeoutId)
     return timeoutId
-  }
-
-  function getPlaybackLoopState(project: Project, playbackTotalBeats = totalBeats) {
-    const settings = getWorkstationLoopSettings(project)
-    const lengthBeats = Math.max(1, Math.min(Math.max(1, playbackTotalBeats), settings.lengthBeats))
-
-    return {
-      enabled: settings.enabled,
-      lengthBeats,
-    }
-  }
-
-  function getPreparedPlaybackNotes(project: Project, track: Track, loopLengthBeats?: number) {
-    return (project.notesByTrack[track.id] ?? [])
-      .filter((note) => loopLengthBeats === undefined || (
-        note.startBeat < loopLengthBeats &&
-        note.startBeat + note.durationBeats > 0
-      ))
-      .map((note) => {
-        const startBeat = loopLengthBeats === undefined
-          ? note.startBeat
-          : Math.max(0, note.startBeat)
-        const durationBeats = loopLengthBeats === undefined
-          ? note.durationBeats
-          : Math.min(note.durationBeats, Math.max(0, loopLengthBeats - startBeat))
-
-        return {
-          ...note,
-          durationBeats,
-          startBeat,
-          velocity: note.velocity * track.volume,
-        }
-      })
-      .filter((note) => note.durationBeats > 0)
-      .sort((left, right) => left.startBeat - right.startBeat)
   }
 
   function getLoopPlaybackSeconds(timeline: ReturnType<typeof buildTempoTimeline>, loopLengthBeats: number) {
@@ -176,22 +148,6 @@ export function usePlayback({
     previousEffectInstrument?.triggerRelease(undefined)
     previousEffectInstrument?.dispose()
     void waitForInstrumentReady(nextInstrument)
-  }
-
-  function getFirstNoteIndexAtBeat(notes: Note[], beat: number) {
-    let low = 0
-    let high = notes.length
-
-    while (low < high) {
-      const mid = Math.floor((low + high) / 2)
-      if (notes[mid].startBeat < beat) {
-        low = mid + 1
-      } else {
-        high = mid
-      }
-    }
-
-    return low
   }
 
   function setPlaybackKeyPressedClass(rawPitch: number, pressed: boolean) {
@@ -842,27 +798,6 @@ export function usePlayback({
   function finishPlayback(endBeat: number) {
     disposePlaybackVoices()
     setPlaybackPosition(endBeat)
-  }
-
-  function getPlaybackContentEndBeat(project: Project) {
-    const hasSoloTrack = project.tracks.some((item) => item.solo)
-    const activeTrackIds = new Set(
-      project.tracks
-        .filter((track) => !track.mute && (!hasSoloTrack || track.solo))
-        .map((track) => track.id),
-    )
-    const notesEndBeat = Object.entries(project.notesByTrack).reduce((latestEnd, [trackId, notes]) => {
-      if (!activeTrackIds.has(trackId)) return latestEnd
-      return Math.max(
-        latestEnd,
-        ...notes.map((note) => note.startBeat + note.durationBeats),
-      )
-    }, 0)
-    const clipsEndBeat = (project.audioClips ?? []).reduce((latestEnd, clip) => {
-      if (!activeTrackIds.has(clip.trackId)) return latestEnd
-      return Math.max(latestEnd, clip.startBeat + clip.durationBeats)
-    }, 0)
-    return Math.max(notesEndBeat, clipsEndBeat)
   }
 
   async function startPlaybackAt(startBeat: number) {

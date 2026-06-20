@@ -43,7 +43,9 @@ export function TrackPanel({
   addTrack,
   applyAutoMix,
   allTrackMelodyMode,
+  isRecordingVoice,
   onClose,
+  openAudioUpload,
   openInstrumentDialog,
   openTrackContextMenu,
   openTrackPanelContextMenu,
@@ -51,6 +53,7 @@ export function TrackPanel({
   selectTrack,
   selectedTrackName,
   setAllTrackMelodyMode,
+  toggleVoiceRecording,
   updateTrack,
 }: TrackPanelProps) {
   function toggleTrackMute(trackId: string, mute: boolean) {
@@ -105,7 +108,7 @@ export function TrackPanel({
             </button>
 
             <div className="track-copy">
-              <strong>악기 {index + 1}</strong>
+              <strong>{track.name || `${track.kind === 'audio' ? '소리' : '악기'} ${index + 1}`}</strong>
               <span>{getInstrumentLabel(track.instrumentId)}</span>
             </div>
 
@@ -191,6 +194,17 @@ export function TrackPanel({
         ))}
 
         <button type="button" className="add-track-button" onPointerDown={addTrack}>＋ 악기 추가</button>
+        <button type="button" className="add-track-button" onPointerDown={openAudioUpload}>＋ 소리 넣기</button>
+        <button
+          type="button"
+          className={isRecordingVoice ? 'add-track-button is-recording' : 'add-track-button'}
+          aria-pressed={isRecordingVoice}
+          onPointerDown={() => {
+            void toggleVoiceRecording()
+          }}
+        >
+          {isRecordingVoice ? '■ 녹음 중지' : '● 마이크 녹음'}
+        </button>
         <button type="button" className="add-track-button" onPointerDown={applyAutoMix}>자동 균형 조정</button>
       </div>
     </aside>

@@ -1,25 +1,28 @@
-import { useMemo, type CSSProperties } from 'react'
+import { useMemo } from 'react'
 import { expandProjectForArrangement } from '../../../lib/arrangement/trackArrangement'
 import { isDrumInstrument } from '../../../lib/audio/toneTransport'
-import type { Note, Project } from '../../../types/music'
+import type { Project } from '../../../types/music'
 import {
   BEATS_PER_BAR,
   DEFAULT_BEAT_WIDTH,
   DEFAULT_PROJECT_LENGTH_BEATS,
   DRUM_PITCHES,
   EDITING_TAIL_BEATS,
-  KEY_COLUMN_WIDTH,
   MIN_DURATION_BEATS,
-  ROLL_ROW_HEIGHT,
 } from '../constants'
 import {
   getDynamicPitches,
   getNormalizedTempoSections,
-  getNotesEndBeat,
   getPatternRepeatGroupNoteIds,
   getVisibleBars,
 } from '../helpers'
 import type { EditorTab, NoteDivision, RollZoom } from '../types'
+import {
+  createRollSurfaceStyles,
+  getProjectEndBeat,
+  groupNotesByPitch,
+  withTrackId,
+} from '../utils/editorSelectorUtils'
 
 type UseEditorSelectorsOptions = {
   activeEditorTab: EditorTab
@@ -31,24 +34,6 @@ type UseEditorSelectorsOptions = {
   rollZoom: RollZoom
   selectedNoteIds: string[]
   selectedTempoSectionId: string | null
-}
-
-type RollSurfaceStyle = CSSProperties & Record<string, string | number>
-
-function withTrackId(notes: Note[], trackId: string | undefined) {
-  return notes.map((note) => ({ ...note, trackId: trackId ?? '' }))
-}
-
-function groupNotesByPitch(notes: Array<Note & { trackId: string }>) {
-  const notesByPitch = new Map<number, Array<Note & { trackId: string }>>()
-
-  notes.forEach((note) => {
-    const pitchNotes = notesByPitch.get(note.pitch) ?? []
-    pitchNotes.push(note)
-    notesByPitch.set(note.pitch, pitchNotes)
-  })
-
-  return notesByPitch
 }
 
 export function useEditorSelectors({
@@ -151,19 +136,7 @@ export function useEditorSelectors({
     [activeEditorTab, project],
   )
 
-  const projectEndBeat = useMemo(() => {
-    const notesEndBeat = getNotesEndBeat(project.notesByTrack)
-    const clipsEndBeat = (project.audioClips ?? []).reduce(
-      (latestEnd, clip) => Math.max(latestEnd, clip.startBeat + clip.durationBeats),
-      0,
-    )
-    const placementsEndBeat = (project.patternPlacements ?? []).reduce(
-      (latestEnd, placement) => Math.max(latestEnd, placement.startBeat + placement.spanBeats),
-      0,
-    )
-
-    return Math.max(notesEndBeat, clipsEndBeat, placementsEndBeat)
-  }, [project.audioClips, project.notesByTrack, project.patternPlacements])
+  const projectEndBeat = useMemo(() => getProjectEndBeat(project), [project])
 
   const projectLengthBeats = Math.max(DEFAULT_PROJECT_LENGTH_BEATS, projectEndBeat + EDITING_TAIL_BEATS)
   const visibleBars = getVisibleBars(projectLengthBeats)
@@ -193,19 +166,14 @@ export function useEditorSelectors({
   const beatWidth = DEFAULT_BEAT_WIDTH * rollZoom * browserZoom
   const stepWidth = beatWidth / stepsPerBeat
   const rollTimelineStyle = { gridTemplateColumns: `repeat(${visibleBars}, minmax(64px, 1fr))` }
-  const rollSurfaceStyle: RollSurfaceStyle = {
-    '--bar-width': `${beatWidth * BEATS_PER_BAR}px`,
-    '--beat-width': `${beatWidth}px`,
-    '--roll-grid-height': `${rollPitches.length * ROLL_ROW_HEIGHT}px`,
-    '--roll-grid-width': `${totalBeats * beatWidth}px`,
-    '--step-width': `${stepWidth}px`,
-    '--total-steps': totalSteps,
-    '--visible-bars': visibleBars,
-  }
-  const rollShellStyle: RollSurfaceStyle = {
-    ...rollSurfaceStyle,
-    gridTemplateColumns: `${KEY_COLUMN_WIDTH}px minmax(${totalBeats * beatWidth}px, 1fr)`,
-  }
+  const { rollShellStyle, rollSurfaceStyle } = createRollSurfaceStyles({
+    beatWidth,
+    rollPitchCount: rollPitches.length,
+    stepWidth,
+    totalBeats,
+    totalSteps,
+    visibleBars,
+  })
 
   const selectedNotesByPitch = useMemo(
     () => groupNotesByPitch(editableNotePool),

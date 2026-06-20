@@ -1,3 +1,4 @@
+import { useMemo, type PointerEvent as ReactPointerEvent } from 'react'
 import { isDrumInstrument } from '../../../lib/audio/toneTransport'
 import { DRUM_LABELS } from '../constants'
 import { getPitchName } from '../helpers'
@@ -20,6 +21,21 @@ export function useSelectionTools({
   stepsPerBeat,
   setProject,
 }: UseSelectionToolsOptions) {
+  const editableNotesByPitch = useMemo(() => {
+    const notes = allTrackMelodyMode
+      ? allTrackNotes
+      : selectedTrackNotes.map((note: any) => ({ ...note, trackId: selectedTrack?.id ?? '' }))
+    const notesByPitch = new Map<number, any[]>()
+
+    notes.forEach((note: any) => {
+      const pitchNotes = notesByPitch.get(note.pitch) ?? []
+      pitchNotes.push(note)
+      notesByPitch.set(note.pitch, pitchNotes)
+    })
+
+    return notesByPitch
+  }, [allTrackMelodyMode, allTrackNotes, selectedTrack?.id, selectedTrackNotes])
+
   function getRowLabel(pitch: number) {
     if (selectedTrack && isDrumInstrument(selectedTrack.instrumentId)) {
       return DRUM_LABELS[pitch] ?? `Drum ${pitch}`
@@ -43,18 +59,14 @@ export function useSelectionTools({
 
   function findEditableNoteAtCell(pitch: number, step: number) {
     const beat = step / stepsPerBeat
-    const notePool = allTrackMelodyMode
-      ? allTrackNotes
-      : selectedTrackNotes.map((note: any) => ({ ...note, trackId: selectedTrack?.id ?? '' }))
-
-    return notePool.find((note: any) => (
+    return (editableNotesByPitch.get(pitch) ?? []).find((note: any) => (
       note.pitch === pitch &&
       beat >= note.startBeat &&
       beat < note.startBeat + note.durationBeats
     )) ?? null
   }
 
-  function beginSelectionBoxMove(event: React.PointerEvent<HTMLElement>) {
+  function beginSelectionBoxMove(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0 || selectedPatternNotes.length === 0) return
 
     const pointerCell = getCellFromPointer(event.clientX, event.clientY)
