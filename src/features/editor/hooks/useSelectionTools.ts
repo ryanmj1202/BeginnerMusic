@@ -14,6 +14,7 @@ export function useSelectionTools({
   getCellFromPointer,
   noteDragRef,
   rollPitches,
+  remoteSelectedNoteIds = [],
   selectedPatternNotes,
   selectedTrack,
   selectedTrackNotes,
@@ -21,6 +22,8 @@ export function useSelectionTools({
   stepsPerBeat,
   setProject,
 }: UseSelectionToolsOptions) {
+  const remoteEditingNoteIdSet = new Set(remoteSelectedNoteIds)
+
   const editableNotesByPitch = useMemo(() => {
     const notes = allTrackMelodyMode
       ? allTrackNotes
@@ -67,7 +70,8 @@ export function useSelectionTools({
   }
 
   function beginSelectionBoxMove(event: ReactPointerEvent<HTMLElement>) {
-    if (event.button !== 0 || selectedPatternNotes.length === 0) return
+    const movablePatternNotes = selectedPatternNotes.filter((note: any) => !remoteEditingNoteIdSet.has(note.id))
+    if (event.button !== 0 || movablePatternNotes.length === 0) return
 
     const pointerCell = getCellFromPointer(event.clientX, event.clientY)
     if (!pointerCell) return
@@ -77,26 +81,26 @@ export function useSelectionTools({
     captureRollPointer(event.pointerId, event.currentTarget)
     cacheRollPointerGeometry()
 
-    const selectedRows = selectedPatternNotes
+    const selectedRows = movablePatternNotes
       .map((note: any) => rollPitches.indexOf(note.pitch))
       .filter((rowIndex: number) => rowIndex >= 0)
     if (selectedRows.length === 0) return
 
     const topRow = Math.min(...selectedRows)
     const originPitch = rollPitches[topRow]
-    const originStep = Math.min(...selectedPatternNotes.map((note: any) => Math.round(note.startBeat * stepsPerBeat)))
-    const firstNote = selectedPatternNotes[0]
+    const originStep = Math.min(...movablePatternNotes.map((note: any) => Math.round(note.startBeat * stepsPerBeat)))
+    const firstNote = movablePatternNotes[0]
 
     beginHistoryBatch()
     noteDragRef.current = {
       active: true,
       grabPitchOffset: pointerCell.pitch - originPitch,
       grabStepOffset: Math.max(0, pointerCell.step - originStep),
-      groupNoteIds: selectedPatternNotes.map((note: any) => note.id),
+      groupNoteIds: movablePatternNotes.map((note: any) => note.id),
       lastPitch: pointerCell.pitch,
       lastStep: pointerCell.step,
       noteId: firstNote.id,
-      originalNotes: selectedPatternNotes,
+      originalNotes: movablePatternNotes,
       originPitch,
       originStep,
       trackId: firstNote.trackId,

@@ -16,7 +16,7 @@ import {
 import type { Project } from '../../../types/music'
 
 export type CollaborationRemoteState = {
-  cursor: { x: number; y: number } | null
+  cursor: { x: number; y: number; xRatio?: number; yRatio?: number } | null
   notesByTrack: Project['notesByTrack'] | null
   project: Project | null
   roomDeleted?: boolean
@@ -29,7 +29,7 @@ export type CollaborationSubscription = {
 
 type CollaborationRoomDocument = {
   activeSelections?: Record<string, string[]>
-  cursors?: Record<string, { x: number; y: number }>
+  cursors?: Record<string, { x: number; y: number; xRatio?: number; yRatio?: number }>
   notesByTrack?: Project['notesByTrack']
   notesUpdatedBy?: string
   participants?: Record<string, { active: boolean; leftAt?: number }>
@@ -235,7 +235,11 @@ export async function updateCollaborationProject(roomCode: string, clientId: str
   }
 }
 
-export async function updateCollaborationCursor(roomCode: string, clientId: string, cursor: { x: number; y: number }) {
+export async function updateCollaborationCursor(
+  roomCode: string,
+  clientId: string,
+  cursor: { x: number; y: number; xRatio?: number; yRatio?: number },
+) {
   await updateDoc(getRoomRef(roomCode), {
     [`cursors.${clientId}`]: {
       ...cursor,

@@ -128,6 +128,7 @@ export function PianoRollRows({
                   type="button"
                   className={className}
                   key={`${note.trackId}-${note.id}`}
+                  disabled={remoteSelectedNoteIdSet.has(note.id)}
                   style={{
                     '--note-color': trackDisplay.color,
                     left: `${(note.startBeat / totalBeats) * 100}%`,
@@ -161,6 +162,7 @@ export function PianoRollRows({
                   type="button"
                   className={className}
                   key={note.id}
+                  disabled={remoteSelectedNoteIdSet.has(note.id)}
                   style={{
                     '--note-color': trackDisplay.color,
                     left: `${(note.startBeat / totalBeats) * 100}%`,

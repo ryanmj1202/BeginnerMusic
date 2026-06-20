@@ -19,6 +19,7 @@ export function useNoteEditing({
   endHistoryBatch,
   getNoteTrackId,
   lastNoteDurationRef,
+  remoteSelectedNoteIds = [],
   selectedNote,
   selectedNoteIds,
   setProject,
@@ -29,7 +30,12 @@ export function useNoteEditing({
   totalBeats,
   totalSteps,
 }: UseNoteEditingOptions) {
+  const remoteEditingNoteIdSet = new Set<string>(remoteSelectedNoteIds)
+  const isRemoteEditingNote = (noteId: string) => remoteEditingNoteIdSet.has(noteId)
+
   function deleteNote(noteId: string) {
+    if (isRemoteEditingNote(noteId)) return
+
     setSelectedNoteIds((current: string[]) => current.filter((id) => id !== noteId))
     setSelectionBox(null)
     setProject((current: any) => ({
@@ -46,8 +52,10 @@ export function useNoteEditing({
   function deleteSelectedNotes() {
     if (selectedNoteIds.length === 0) return
 
-    const idsToDelete = new Set<string>(selectedNoteIds)
-    setSelectedNoteIds([])
+    const idsToDelete = new Set<string>(selectedNoteIds.filter((noteId: string) => !isRemoteEditingNote(noteId)))
+    if (idsToDelete.size === 0) return
+
+    setSelectedNoteIds((current: string[]) => current.filter((noteId) => !idsToDelete.has(noteId)))
     setSelectionBox(null)
     setProject((current: any) => ({
       ...current,
@@ -74,7 +82,9 @@ export function useNoteEditing({
     if (editableSelectedNotes.length === 0) return
 
     const pitchDelta = direction
-    const targetIds = new Set(editableSelectedNotes.map((note: any) => note.id))
+    const targetIds = new Set(editableSelectedNotes.map((note: any) => note.id).filter((noteId: string) => !isRemoteEditingNote(noteId)))
+    if (targetIds.size === 0) return
+
     const targetNotes = allTrackNotes.filter((note: any) => targetIds.has(note.id))
     if (targetNotes.length === 0) return
 
@@ -98,6 +108,8 @@ export function useNoteEditing({
   }
 
   function updateSingleNoteControlValue(noteId: string, key: string, value: number, automationBeatOffset?: number) {
+    if (isRemoteEditingNote(noteId)) return
+
     const clamped = clampNoteControlValue(key as any, value)
     setProject((current: any) => {
       let changed = false
@@ -173,7 +185,7 @@ export function useNoteEditing({
     const segmentSpan = Math.max(0.0001, segmentEndBeat - segmentStartBeat)
     const updates = new Map<string, number>()
 
-    noteIds.forEach((noteId) => {
+    noteIds.filter((noteId) => !isRemoteEditingNote(noteId)).forEach((noteId) => {
       const note = allTrackNotesById.get(noteId)
       if (!note || note.startBeat < segmentStartBeat || note.startBeat > segmentEndBeat) return
 
@@ -280,8 +292,10 @@ export function useNoteEditing({
     const minBeat = Math.min(...notes.map((note) => note.startBeat))
     const maxBeat = Math.max(...notes.map((note) => note.startBeat + note.durationBeats))
     const noteIds = [...notes]
+      .filter((note) => !isRemoteEditingNote(note.id))
       .sort((left, right) => left.startBeat - right.startBeat || left.pitch - right.pitch)
       .map((note) => note.id)
+    if (noteIds.length === 0) return
 
     detailGraphDragRef.current = {
       active: true,
@@ -342,6 +356,8 @@ export function useNoteEditing({
   }
 
   function updateNoteEvent(noteId: string, updates: Record<string, number>) {
+    if (isRemoteEditingNote(noteId)) return
+
     setProject((current: any) => {
       let changed = false
       const nextNotesByTrack = Object.fromEntries(Object.entries(current.notesByTrack).map(([trackId, notes]: any) => [
@@ -376,6 +392,8 @@ export function useNoteEditing({
   }
 
   function resizeNote(targetNote: any, durationBeats: number) {
+    if (isRemoteEditingNote(targetNote.id)) return
+
     const trackId = getNoteTrackId(targetNote)
     if (!trackId) return
 
@@ -410,6 +428,8 @@ export function useNoteEditing({
   }
 
   function startResizingNote(note: any, event: React.PointerEvent<HTMLElement>) {
+    if (isRemoteEditingNote(note.id)) return
+
     const row = event.currentTarget.closest('.step-row')
     if (!(row instanceof HTMLElement)) return
 

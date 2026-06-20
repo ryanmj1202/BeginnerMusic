@@ -23,6 +23,13 @@ type RemoteCursor = {
   y: number
 } | null
 
+type CollaborationCursor = {
+  x: number
+  y: number
+  xRatio?: number
+  yRatio?: number
+}
+
 type UseCollaborationOptions = {
   draggingNoteId: string | null
   pianoRollRef: RefObject<HTMLDivElement | null>
@@ -63,7 +70,7 @@ export function useCollaboration({
   const applyingRemoteProjectRef = useRef(false)
   const cursorFrameRef = useRef(0)
   const sessionTimeoutRef = useRef<number | null>(null)
-  const pendingCursorRef = useRef<{ x: number; y: number } | null>(null)
+  const pendingCursorRef = useRef<CollaborationCursor | null>(null)
   const [collaborationCode, setCollaborationCode] = useState<string | null>(null)
   const collaborationCodeRef = useRef<string | null>(null)
   const [collaborationDialogOpen, setCollaborationDialogOpen] = useState(false)
@@ -75,6 +82,7 @@ export function useCollaboration({
     tone: 'error' | 'success'
   } | null>(null)
   const [remoteCursor, setRemoteCursor] = useState<RemoteCursor>(null)
+  const [remoteRawCursor, setRemoteRawCursor] = useState<CollaborationCursor | null>(null)
   const [remoteSelectedNoteIds, setRemoteSelectedNoteIds] = useState<string[]>([])
 
   const showCollaborationToast = useCallback((message: string, tone: 'error' | 'success') => {
@@ -101,6 +109,7 @@ export function useCollaboration({
     setCollaborationDialogOpen(false)
     setSelectedCollaborationMode(null)
     setRemoteCursor(null)
+    setRemoteRawCursor(null)
     setRemoteSelectedNoteIds([])
   }, [])
 
@@ -111,7 +120,7 @@ export function useCollaboration({
         clearCurrentRoom()
         return
       }
-      if (remoteState.cursor) setRemoteCursor(remoteState.cursor)
+      setRemoteRawCursor(remoteState.cursor)
       setRemoteSelectedNoteIds(remoteState.selectedNoteIds)
 
       if (remoteState.project || remoteState.notesByTrack) {
@@ -251,6 +260,8 @@ export function useCollaboration({
       pendingCursorRef.current = {
         x: event.clientX - rect.left + roll.scrollLeft,
         y: event.clientY - rect.top + roll.scrollTop,
+        xRatio: (event.clientX - rect.left + roll.scrollLeft) / Math.max(1, roll.scrollWidth),
+        yRatio: (event.clientY - rect.top + roll.scrollTop) / Math.max(1, roll.scrollHeight),
       }
       if (!cursorFrameRef.current) {
         cursorFrameRef.current = window.requestAnimationFrame(sendCursor)
@@ -264,6 +275,33 @@ export function useCollaboration({
       cursorFrameRef.current = 0
     }
   }, [collaborationCode, pianoRollRef])
+
+  useEffect(() => {
+    const roll = pianoRollRef.current
+    if (!roll || !remoteRawCursor) {
+      setRemoteCursor(null)
+      return
+    }
+
+    const updateRemoteCursorPosition = () => {
+      setRemoteCursor({
+        x: typeof remoteRawCursor.xRatio === 'number'
+          ? remoteRawCursor.xRatio * roll.scrollWidth
+          : remoteRawCursor.x,
+        y: typeof remoteRawCursor.yRatio === 'number'
+          ? remoteRawCursor.yRatio * roll.scrollHeight
+          : remoteRawCursor.y,
+      })
+    }
+
+    updateRemoteCursorPosition()
+    window.addEventListener('resize', updateRemoteCursorPosition)
+    window.visualViewport?.addEventListener('resize', updateRemoteCursorPosition)
+    return () => {
+      window.removeEventListener('resize', updateRemoteCursorPosition)
+      window.visualViewport?.removeEventListener('resize', updateRemoteCursorPosition)
+    }
+  }, [pianoRollRef, remoteRawCursor])
 
   useEffect(() => {
     const leaveOnPageHide = () => leaveCurrentRoom()
