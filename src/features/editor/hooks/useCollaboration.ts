@@ -17,6 +17,25 @@ import {
 
 const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 const COLLABORATION_SESSION_MS = 3 * 60 * 1000
+const PROJECT_SYNC_KEYS = [
+  'title',
+  'tempo',
+  'timeSignature',
+  'selectedTrackId',
+  'selectedNoteId',
+  'lengthBeats',
+  'theme',
+  'tracks',
+  'notesByTrack',
+  'audioClips',
+  'tempoSections',
+  'autoMixSettings',
+  'autoMixSections',
+  'patternPlacements',
+  'patternRepeatGroups',
+  'workstationLoop',
+  'workstationPatterns',
+] as const
 
 type RemoteCursor = {
   x: number
@@ -56,6 +75,22 @@ function getClientId() {
   return next
 }
 
+function isEqualProjectField<Key extends (typeof PROJECT_SYNC_KEYS)[number]>(
+  left: Project[Key],
+  right: Project[Key],
+) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+}
+
+function mergeRemoteProject(current: Project, lastRemoteProject: Project | null, remoteProject: Project) {
+  if (!lastRemoteProject) return remoteProject
+
+  return PROJECT_SYNC_KEYS.reduce<Project>((nextProject, key) => {
+    if (isEqualProjectField(lastRemoteProject[key], remoteProject[key])) return nextProject
+    return { ...nextProject, [key]: remoteProject[key] }
+  }, current)
+}
+
 export function useCollaboration({
   draggingNoteId,
   pianoRollRef,
@@ -68,6 +103,7 @@ export function useCollaboration({
   const clientIdRef = useRef(getClientId())
   const subscriptionRef = useRef<CollaborationSubscription | null>(null)
   const applyingRemoteProjectRef = useRef(false)
+  const lastRemoteProjectRef = useRef<Project | null>(null)
   const cursorFrameRef = useRef(0)
   const sessionTimeoutRef = useRef<number | null>(null)
   const pendingCursorRef = useRef<CollaborationCursor | null>(null)
@@ -111,6 +147,7 @@ export function useCollaboration({
     setRemoteCursor(null)
     setRemoteRawCursor(null)
     setRemoteSelectedNoteIds([])
+    lastRemoteProjectRef.current = null
   }, [])
 
   const connectRoom = useCallback((code: string) => {
@@ -125,12 +162,17 @@ export function useCollaboration({
 
       if (remoteState.project || remoteState.notesByTrack) {
         applyingRemoteProjectRef.current = true
-        setProject((current) => (
-          remoteState.project ?? {
-            ...current,
-            notesByTrack: remoteState.notesByTrack ?? current.notesByTrack,
-          }
-        ))
+        setProject((current) => {
+          const nextProject = remoteState.project
+            ? mergeRemoteProject(current, lastRemoteProjectRef.current, remoteState.project)
+            : {
+                ...current,
+                notesByTrack: remoteState.notesByTrack ?? current.notesByTrack,
+              }
+
+          if (remoteState.project) lastRemoteProjectRef.current = remoteState.project
+          return nextProject
+        })
         window.setTimeout(() => {
           applyingRemoteProjectRef.current = false
         }, 0)
@@ -178,6 +220,7 @@ export function useCollaboration({
     try {
       await createCollaborationRoom(code, clientIdRef.current, projectRef.current ?? project)
       setSelectedCollaborationMode('create')
+      lastRemoteProjectRef.current = projectRef.current ?? project
       connectRoom(code)
     } catch (error) {
       console.error(error)

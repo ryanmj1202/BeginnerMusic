@@ -199,13 +199,22 @@ export function useKeyboardRecording({
     Array.from(liveMidiInstrumentsRef.current.keys()).forEach(disposeSharedLiveMidiInstrument)
   }
 
-  function createLiveMidiVoice(code: string, pitch: number, velocity: number, controls: MidiPerformanceControls, channel?: number) {
+  function createLiveMidiVoice(
+    code: string,
+    pitch: number,
+    velocity: number,
+    controls: MidiPerformanceControls,
+    channel?: number,
+    stopOtherTrackVoices = true,
+  ) {
     const currentTrack = getMidiTargetTrack(channel)
     if (!currentTrack) return null
     stopLiveMidiVoice(code, true)
-    liveMidiVoicesRef.current.forEach((voice, voiceCode) => {
-      if (voice.trackId !== currentTrack.id) stopLiveMidiVoice(voiceCode, true)
-    })
+    if (stopOtherTrackVoices) {
+      liveMidiVoicesRef.current.forEach((voice, voiceCode) => {
+        if (voice.trackId !== currentTrack.id) stopLiveMidiVoice(voiceCode, true)
+      })
+    }
 
     const bentPitch = pitch + controls.pitchBend
     const sharedKey = getSharedLiveMidiKey(currentTrack, controls)
@@ -383,7 +392,7 @@ export function useKeyboardRecording({
     const controls = channel === undefined ? DEFAULT_MIDI_CONTROLS : getMidiControls(channel)
     const startBeat = Math.max(0, getPlaybackBeatAtEventTime(eventTimeStamp))
     const liveNoteInput = channel === undefined
-      ? playLiveKeyboardInput(currentTrack.id, pitch, velocity)
+      ? createLiveMidiVoice(code, pitch, velocity, controls, undefined, false)
       : createLiveMidiVoice(code, pitch, velocity, controls, channel)
     const note: Note = {
       id: createId('note'),

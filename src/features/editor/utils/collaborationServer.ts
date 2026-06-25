@@ -11,7 +11,6 @@ import {
   setDoc,
   updateDoc,
   type Firestore,
-  type Unsubscribe,
 } from 'firebase/firestore'
 import type { Project } from '../../../types/music'
 
@@ -85,7 +84,6 @@ export function getCollaborationErrorMessage(error: unknown) {
   if (code === 'not-found') return 'Firebase 프로젝트 또는 Firestore 데이터베이스를 찾을 수 없습니다.'
   if (code === 'unavailable') return 'Firebase 서버에 연결할 수 없습니다.'
   if (code === 'invalid-argument') return 'Firestore에 저장할 수 없는 협업 데이터가 있습니다.'
-
   return 'Firebase 연결에 실패했습니다.'
 }
 
@@ -129,7 +127,7 @@ function getOtherCursor(cursors: CollaborationRoomDocument['cursors'], clientId:
 
 export async function createCollaborationRoom(roomCode: string, clientId: string, project: Project) {
   const roomRef = getRoomRef(roomCode)
-  const legacyRoom = {
+  await setDoc(roomRef, {
     activeSelections: {
       [clientId]: [],
     },
@@ -139,21 +137,13 @@ export async function createCollaborationRoom(roomCode: string, clientId: string
     notesByTrack: project.notesByTrack,
     notesUpdatedAt: serverTimestamp(),
     notesUpdatedBy: clientId,
-  }
-
-  try {
-    await setDoc(roomRef, {
-      ...legacyRoom,
-      participants: {
-        [clientId]: { active: true },
-      },
-      project,
-      projectUpdatedAt: serverTimestamp(),
-      projectUpdatedBy: clientId,
-    })
-  } catch {
-    await setDoc(roomRef, legacyRoom)
-  }
+    participants: {
+      [clientId]: { active: true },
+    },
+    project,
+    projectUpdatedAt: serverTimestamp(),
+    projectUpdatedBy: clientId,
+  })
 }
 
 export async function joinCollaborationRoomOnServer(roomCode: string, clientId: string) {
@@ -162,18 +152,11 @@ export async function joinCollaborationRoomOnServer(roomCode: string, clientId: 
   const roomSnapshot = await getDoc(getRoomRef(roomCode))
   if (!roomSnapshot.exists()) return false
 
-  try {
-    await updateDoc(getRoomRef(roomCode), {
-      [`activeSelections.${clientId}`]: [],
-      [`participants.${clientId}`]: { active: true },
-      updatedAt: serverTimestamp(),
-    })
-  } catch {
-    await updateDoc(getRoomRef(roomCode), {
-      [`activeSelections.${clientId}`]: [],
-      updatedAt: serverTimestamp(),
-    })
-  }
+  await updateDoc(getRoomRef(roomCode), {
+    [`activeSelections.${clientId}`]: [],
+    [`participants.${clientId}`]: { active: true },
+    updatedAt: serverTimestamp(),
+  })
   return true
 }
 
@@ -182,9 +165,7 @@ export function subscribeCollaborationRoom(
   clientId: string,
   onRemoteState: (state: CollaborationRemoteState) => void,
 ): CollaborationSubscription {
-  let unsubscribe: Unsubscribe = () => {}
-
-  unsubscribe = onSnapshot(getRoomRef(roomCode), (snapshot) => {
+  const unsubscribe = onSnapshot(getRoomRef(roomCode), (snapshot) => {
     if (!snapshot.exists()) {
       onRemoteState({
         cursor: null,
@@ -221,18 +202,14 @@ export async function updateCollaborationNotes(roomCode: string, clientId: strin
 }
 
 export async function updateCollaborationProject(roomCode: string, clientId: string, project: Project) {
-  try {
-    await updateDoc(getRoomRef(roomCode), {
-      notesByTrack: project.notesByTrack,
-      notesUpdatedAt: serverTimestamp(),
-      notesUpdatedBy: clientId,
-      project,
-      projectUpdatedAt: serverTimestamp(),
-      projectUpdatedBy: clientId,
-    })
-  } catch {
-    await updateCollaborationNotes(roomCode, clientId, project.notesByTrack)
-  }
+  await updateDoc(getRoomRef(roomCode), {
+    notesByTrack: project.notesByTrack,
+    notesUpdatedAt: serverTimestamp(),
+    notesUpdatedBy: clientId,
+    project,
+    projectUpdatedAt: serverTimestamp(),
+    projectUpdatedBy: clientId,
+  })
 }
 
 export async function updateCollaborationCursor(
@@ -255,22 +232,15 @@ export async function updateCollaborationSelection(roomCode: string, clientId: s
 }
 
 export async function leaveCollaborationRoom(roomCode: string, clientId: string) {
-  try {
-    await updateDoc(getRoomRef(roomCode), {
-      [`activeSelections.${clientId}`]: deleteField(),
-      [`cursors.${clientId}`]: deleteField(),
-      [`participants.${clientId}`]: {
-        active: false,
-        leftAt: Date.now(),
-      },
-      updatedAt: serverTimestamp(),
-    })
-  } catch {
-    await updateDoc(getRoomRef(roomCode), {
-      [`activeSelections.${clientId}`]: [],
-      updatedAt: serverTimestamp(),
-    })
-  }
+  await updateDoc(getRoomRef(roomCode), {
+    [`activeSelections.${clientId}`]: deleteField(),
+    [`cursors.${clientId}`]: deleteField(),
+    [`participants.${clientId}`]: {
+      active: false,
+      leftAt: Date.now(),
+    },
+    updatedAt: serverTimestamp(),
+  })
 
   window.setTimeout(() => {
     void deleteRoomIfExpired(roomCode).catch(() => {})
