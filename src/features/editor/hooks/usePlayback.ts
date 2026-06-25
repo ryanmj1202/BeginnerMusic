@@ -343,8 +343,7 @@ export function usePlayback({
       hasModulationGlide ||
       hasReverbGlide ||
       Math.abs(notePan) > 0.01 ||
-      noteModulation > 0.01 ||
-      noteReverb > 0.01
+      noteModulation > 0.01
     const routedNoteInstrument = needsRouting
       ? createInstrument(track.instrumentId, 'playback', { isolatedSoundFont: !track.isDrum })
       : null
@@ -833,14 +832,6 @@ export function usePlayback({
       if (!loopState.enabled && notes.length === 0) return
 
       const instrument = createInstrument(track.instrumentId)
-      const hasEffectNotes = notes.some((note) => (
-        Math.abs(note.pan ?? 0) > 0.01 ||
-        (!isDrumInstrument(track.instrumentId) && getNoteControlAutomation(note, 'pitchBend').length > 0) ||
-        (!isDrumInstrument(track.instrumentId) && ((note.modulation ?? 0) > 0.01 || (note.reverb ?? 0) > 0.01))
-      ))
-      const effectInstrument = hasEffectNotes
-        ? createInstrument(track.instrumentId, 'playback', { isolatedSoundFont: !isDrumInstrument(track.instrumentId) })
-        : undefined
       const panner =
         Math.abs(track.pan ?? 0) > 0.01
           ? new Tone.Panner(Math.max(-1, Math.min(1, track.pan ?? 0))).toDestination()
@@ -850,9 +841,7 @@ export function usePlayback({
         instrument.connect?.(panner)
       }
       activeInstrumentsRef.current.push(instrument)
-      if (effectInstrument) activeInstrumentsRef.current.push(effectInstrument)
       activePlaybackTracksRef.current.push({
-        effectInstrument,
         id: track.id,
         instrumentId: track.instrumentId,
         instrument,

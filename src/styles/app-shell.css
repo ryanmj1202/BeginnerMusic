@@ -81,7 +81,7 @@
   border-radius: 0 0 6px 6px;
   background: #191d25;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .file-menu button {
@@ -89,6 +89,35 @@
   width: 100%;
   min-height: 34px;
   text-align: left;
+}
+
+.file-menu-item {
+  position: relative;
+}
+
+.file-menu-item > button {
+  justify-content: space-between;
+}
+
+.submenu-arrow {
+  margin-left: auto;
+}
+
+.file-submenu {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  z-index: 22;
+  display: none;
+  width: 170px;
+  border: 1px solid #313846;
+  background: #191d25;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+}
+
+.has-submenu:hover > .file-submenu,
+.has-submenu:focus-within > .file-submenu {
+  display: grid;
 }
 
 .future-button {

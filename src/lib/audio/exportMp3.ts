@@ -13,6 +13,7 @@ const SAMPLE_RATE = 44100
 const MP3_KBPS = 160
 const ENCODE_CHUNK_SIZE = 1152
 const EXPORT_HEADROOM = 0.98
+const MELODIC_RELEASE_SECONDS = 0.24
 const TEMPO_INPUT_MIN = 1
 const TEMPO_INPUT_MAX = 999
 const SOUNDFONT_ROOT_NOTES = [36, 48, 60, 72, 84]
@@ -211,8 +212,9 @@ async function scheduleSoundFontNote(
   const buffer = await context.decodeAudioData(sampleData.slice(0))
   const startSeconds = getSecondsBetweenBeats(project, 0, note.startBeat, totalBeats)
   const durationSeconds = Math.max(0.04, getSecondsBetweenBeats(project, note.startBeat, note.startBeat + note.durationBeats, totalBeats))
-  const releaseSeconds = Math.min(0.18, durationSeconds * 0.35)
+  const releaseSeconds = Math.max(0.12, Math.min(MELODIC_RELEASE_SECONDS, durationSeconds * 0.65))
   const endSeconds = startSeconds + durationSeconds
+  const releaseEndSeconds = endSeconds + releaseSeconds
   const source = context.createBufferSource()
   const gain = context.createGain()
   const panner = context.createStereoPanner()
@@ -222,14 +224,14 @@ async function scheduleSoundFontNote(
   source.playbackRate.setValueAtTime(playbackRate, startSeconds)
   gain.gain.setValueAtTime(0.0001, startSeconds)
   gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, Math.min(1.1, getNoteGain(note, track) * 0.9)), startSeconds + 0.006)
-  gain.gain.setValueAtTime(Math.max(0.0001, Math.min(1.1, getNoteGain(note, track) * 0.9)), Math.max(startSeconds + 0.006, endSeconds - releaseSeconds))
-  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
+  gain.gain.setValueAtTime(Math.max(0.0001, Math.min(1.1, getNoteGain(note, track) * 0.9)), Math.max(startSeconds + 0.006, endSeconds))
+  gain.gain.exponentialRampToValueAtTime(0.0001, releaseEndSeconds)
   panner.pan.setValueAtTime(Math.max(-1, Math.min(1, (track.pan ?? 0) + (note.pan ?? 0))), startSeconds)
   source.connect(gain)
   gain.connect(panner)
   connectWithNoteReverb(context, panner, destination, note.reverb)
   source.start(startSeconds)
-  source.stop(Math.min(endSeconds + 0.08, startSeconds + buffer.duration / playbackRate))
+  source.stop(Math.min(releaseEndSeconds + 0.02, startSeconds + buffer.duration / playbackRate))
   return true
 }
 
@@ -271,7 +273,7 @@ function scheduleSynthNote(
   const gain = context.createGain()
   const panner = context.createStereoPanner()
   const attackSeconds = Math.min(0.02, durationSeconds * 0.2)
-  const releaseSeconds = Math.min(0.12, durationSeconds * 0.45)
+  const releaseSeconds = Math.max(0.1, Math.min(MELODIC_RELEASE_SECONDS, durationSeconds * 0.6))
   const peakGain = Math.min(
     0.34,
     Math.max(0.02, getNoteGain(note, track) * 0.24),
@@ -293,15 +295,15 @@ function scheduleSynthNote(
   }
   gain.gain.setValueAtTime(0.0001, startSeconds)
   gain.gain.exponentialRampToValueAtTime(peakGain, startSeconds + attackSeconds)
-  gain.gain.setValueAtTime(peakGain, Math.max(startSeconds + attackSeconds, endSeconds - releaseSeconds))
-  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds)
+  gain.gain.setValueAtTime(peakGain, Math.max(startSeconds + attackSeconds, endSeconds))
+  gain.gain.exponentialRampToValueAtTime(0.0001, endSeconds + releaseSeconds)
   panner.pan.setValueAtTime(Math.max(-1, Math.min(1, (track.pan ?? 0) + (note.pan ?? 0))), startSeconds)
 
   oscillator.connect(gain)
   gain.connect(panner)
   connectWithNoteReverb(context, panner, destination, note.reverb)
   oscillator.start(startSeconds)
-  oscillator.stop(endSeconds + 0.02)
+  oscillator.stop(endSeconds + releaseSeconds + 0.02)
 }
 
 function createNoiseBuffer(context: OfflineAudioContext, durationSeconds: number) {
@@ -515,7 +517,60 @@ function encodeMp3(buffer: AudioBuffer) {
   return new Blob(chunks.map((chunk) => chunk.slice().buffer), { type: 'audio/mpeg' })
 }
 
-export async function exportMp3Project(project: Project) {
+function encodeWav(buffer: AudioBuffer) {
+  const normalizeGain = getNormalizeGain(buffer)
+  const channels = 2
+  const bytesPerSample = 2
+  const dataSize = buffer.length * channels * bytesPerSample
+  const output = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(output)
+  let offset = 0
+
+  function writeString(value: string) {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset, value.charCodeAt(index))
+      offset += 1
+    }
+  }
+
+  writeString('RIFF')
+  view.setUint32(offset, 36 + dataSize, true)
+  offset += 4
+  writeString('WAVE')
+  writeString('fmt ')
+  view.setUint32(offset, 16, true)
+  offset += 4
+  view.setUint16(offset, 1, true)
+  offset += 2
+  view.setUint16(offset, channels, true)
+  offset += 2
+  view.setUint32(offset, buffer.sampleRate, true)
+  offset += 4
+  view.setUint32(offset, buffer.sampleRate * channels * bytesPerSample, true)
+  offset += 4
+  view.setUint16(offset, channels * bytesPerSample, true)
+  offset += 2
+  view.setUint16(offset, 16, true)
+  offset += 2
+  writeString('data')
+  view.setUint32(offset, dataSize, true)
+  offset += 4
+
+  const left = buffer.getChannelData(0)
+  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left
+  for (let index = 0; index < buffer.length; index += 1) {
+    const leftSample = Math.max(-1, Math.min(1, left[index] * normalizeGain))
+    const rightSample = Math.max(-1, Math.min(1, right[index] * normalizeGain))
+    view.setInt16(offset, leftSample < 0 ? leftSample * 0x8000 : leftSample * 0x7fff, true)
+    offset += 2
+    view.setInt16(offset, rightSample < 0 ? rightSample * 0x8000 : rightSample * 0x7fff, true)
+    offset += 2
+  }
+
+  return new Blob([output], { type: 'audio/wav' })
+}
+
+async function renderProjectAudio(project: Project) {
   const arrangedProject = expandProjectForArrangement(project)
   const totalBeats = getProjectEndBeat(arrangedProject)
   const durationSeconds = Math.max(1, getSecondsBetweenBeats(arrangedProject, 0, totalBeats, totalBeats) + 2.2)
@@ -540,6 +595,13 @@ export async function exportMp3Project(project: Project) {
     }),
   )
 
-  const renderedBuffer = await context.startRendering()
-  return encodeMp3(renderedBuffer)
+  return context.startRendering()
+}
+
+export async function exportMp3Project(project: Project) {
+  return encodeMp3(await renderProjectAudio(project))
+}
+
+export async function exportWavProject(project: Project) {
+  return encodeWav(await renderProjectAudio(project))
 }

@@ -25,8 +25,9 @@ type TopMenuProps = {
   projectTitle: string
   redoProject: () => void
   saveMidiFile: () => void
-  saveMp3File: () => void
+  saveMp3File: (mode?: 'mix' | 'tracks') => void
   saveProjectFile: () => void
+  saveWavFile: (mode?: 'mix' | 'tracks') => void
   selectedPatternNoteCount: number
   setActiveEditorTab: Dispatch<SetStateAction<EditorTab>>
   setEditMenuOpen: Dispatch<SetStateAction<boolean>>
@@ -61,6 +62,7 @@ export function TopMenu({
   saveMidiFile,
   saveMp3File,
   saveProjectFile,
+  saveWavFile,
   selectedPatternNoteCount,
   setActiveEditorTab,
   setEditMenuOpen,
@@ -91,10 +93,35 @@ export function TopMenu({
               <button type="button" onPointerDown={createNewProject}>새 파일</button>
               <button type="button" onPointerDown={openProjectFile}>열기</button>
               <button type="button" onPointerDown={saveProjectFile}>저장</button>
-              <button type="button" disabled={isExportingMp3} onPointerDown={saveMp3File}>
-                {isExportingMp3 ? '파일 내보내는 중...' : 'MP3로 내보내기'}
-              </button>
-              <button type="button" onPointerDown={saveMidiFile}>MIDI로 내보내기</button>
+              <div className="file-menu-item has-submenu">
+                <button type="button">
+                  <span>내보내기</span>
+                  <span className="submenu-arrow">&gt;</span>
+                </button>
+                <div className="file-submenu">
+                  <div className="file-menu-item has-submenu">
+                    <button type="button" disabled={isExportingMp3}>
+                      <span>{isExportingMp3 ? '파일 내보내는 중...' : 'MP3'}</span>
+                      <span className="submenu-arrow">&gt;</span>
+                    </button>
+                    <div className="file-submenu">
+                      <button type="button" disabled={isExportingMp3} onPointerDown={() => saveMp3File('mix')}>전체 악기</button>
+                      <button type="button" disabled={isExportingMp3} onPointerDown={() => saveMp3File('tracks')}>개별 악기</button>
+                    </div>
+                  </div>
+                  <div className="file-menu-item has-submenu">
+                    <button type="button" disabled={isExportingMp3}>
+                      <span>{isExportingMp3 ? '파일 내보내는 중...' : 'WAV'}</span>
+                      <span className="submenu-arrow">&gt;</span>
+                    </button>
+                    <div className="file-submenu">
+                      <button type="button" disabled={isExportingMp3} onPointerDown={() => saveWavFile('mix')}>전체 악기</button>
+                      <button type="button" disabled={isExportingMp3} onPointerDown={() => saveWavFile('tracks')}>개별 악기</button>
+                    </div>
+                  </div>
+                  <button type="button" onPointerDown={saveMidiFile}>MIDI</button>
+                </div>
+              </div>
             </div>
           ) : null}
         </div>
@@ -134,6 +161,8 @@ export function TopMenu({
         className="project-title-input"
         value={projectTitle}
         onChange={(event) => updateProjectTitle(event.target.value)}
+        onKeyDown={(event) => event.stopPropagation()}
+        onKeyUp={(event) => event.stopPropagation()}
       />
 
       <div className="top-actions" aria-label="협업 메뉴">
