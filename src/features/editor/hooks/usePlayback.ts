@@ -16,6 +16,7 @@ import type {
 } from '../../../types/music'
 import {
   PLAYBACK_LOOKAHEAD_BEATS,
+  PLAYBACK_LOOKAHEAD_SECONDS,
   PLAYBACK_SCHEDULER_MS,
 } from '../constants'
 import {
@@ -43,6 +44,63 @@ type ActiveRoutedNote = {
   note: Note
   pitchShift: Tone.PitchShift | null
   sessionId: number
+}
+
+type PlaybackEventNote = {
+  durationSeconds: number
+  note: Note
+  noteInput: number
+  playbackStartBeat: number
+  simple: boolean
+  track: ActivePlaybackTrack
+  velocity: number
+}
+
+type PlaybackEvent = {
+  timeSeconds: number
+  notes: PlaybackEventNote[]
+}
+
+function getCommonStaticNotePan(notes: Note[]) {
+  let commonPan = 0
+  let hasCommonPan = false
+
+  for (const note of notes) {
+    if ((note.controlAutomation?.pan?.length ?? 0) > 0) return null
+
+    const notePan = Number(note.pan ?? 0)
+    if (!Number.isFinite(notePan)) return null
+    if (!hasCommonPan) {
+      commonPan = notePan
+      hasCommonPan = true
+      continue
+    }
+    if (Math.abs(notePan - commonPan) > 0.001) return null
+  }
+
+  return commonPan
+}
+
+function preparePlaybackNotesForTrack(trackPan: number, notes: Note[]) {
+  const commonNotePan = getCommonStaticNotePan(notes)
+  if (commonNotePan === null || Math.abs(commonNotePan) <= 0.01) {
+    return {
+      notes,
+      pan: trackPan,
+    }
+  }
+
+  return {
+    notes: notes.map((note) => {
+      const { pan, ...noteWithoutPan } = note
+      return noteWithoutPan
+    }),
+    pan: Math.max(-1, Math.min(1, trackPan + commonNotePan)),
+  }
+}
+
+function hasAnyControlAutomation(note: Note) {
+  return Object.values(note.controlAutomation ?? {}).some((points) => (points?.length ?? 0) > 0)
 }
 
 export function usePlayback({
@@ -75,6 +133,9 @@ export function usePlayback({
   totalBeatsRef,
 }: UsePlaybackOptions) {
   const activeRoutedNotesRef = useRef<Set<ActiveRoutedNote>>(new Set())
+  const playbackAudioStartTimeRef = useRef(0)
+  const playbackEventIndexRef = useRef(0)
+  const playbackEventsRef = useRef<PlaybackEvent[]>([])
 
   useEffect(() => {
     if (!isPlaying || activeRoutedNotesRef.current.size === 0) return
@@ -236,6 +297,9 @@ export function usePlayback({
     activeInstrumentsRef.current = []
     activePlaybackTracksRef.current = []
     activeRoutedNotesRef.current.clear()
+    playbackAudioStartTimeRef.current = 0
+    playbackEventIndexRef.current = 0
+    playbackEventsRef.current = []
     playbackTempoTimelineRef.current = []
     playbackStartSecondsRef.current = 0
     lastPlayheadAutoScrollAtRef.current = 0
@@ -247,7 +311,7 @@ export function usePlayback({
     note: Note,
     currentBeat: number,
     sessionId: number,
-    timing?: { delayMs: number; durationSeconds: number },
+    timing?: { delayMs: number; durationSeconds: number; visualFeedback?: boolean },
   ) {
     const timeline = playbackTempoTimelineRef.current.length > 0
       ? playbackTempoTimelineRef.current
@@ -347,6 +411,31 @@ export function usePlayback({
     const routedNoteInstrument = needsRouting
       ? createInstrument(track.instrumentId, 'playback', { isolatedSoundFont: !track.isDrum })
       : null
+    const visualFeedback = timing?.visualFeedback ?? true
+
+    if (!needsRouting) {
+      if (sessionId !== playbackSessionRef.current) return
+      const startTime = Tone.now() + baseDelayMs / 1000
+      track.instrument.triggerAttackRelease(
+        noteInput,
+        routedDuration,
+        startTime,
+        noteVelocity,
+      )
+
+      if (visualFeedback) {
+        setManagedPlaybackTimeout(() => {
+          if (sessionId !== playbackSessionRef.current) return
+          markPlaybackPitchPressed(notePitch)
+        }, baseDelayMs)
+        setManagedPlaybackTimeout(() => {
+          if (sessionId !== playbackSessionRef.current) return
+          markPlaybackPitchReleased(notePitch)
+        }, baseDelayMs + remainingDurationSeconds * 1000)
+      }
+      return
+    }
+
     const routeReadyStartMs = performance.now()
     const scheduleNoteStart = () => {
       const readyWaitMs = performance.now() - routeReadyStartMs
@@ -356,17 +445,7 @@ export function usePlayback({
       )
       setManagedPlaybackTimeout(() => {
       if (sessionId !== playbackSessionRef.current) return
-      markPlaybackPitchPressed(notePitch)
-
-      if (!needsRouting) {
-        track.instrument.triggerAttackRelease(
-          noteInput,
-          routedDuration,
-          Tone.now(),
-          noteVelocity,
-        )
-        return
-      }
+      if (visualFeedback) markPlaybackPitchPressed(notePitch)
 
       const gain = hasGainGlide || hasPitchGlide
         ? new Tone.Gain(hasPitchGlide && offsetBeat <= 0 ? 0.0001 : Math.max(0.0001, gainSchedule[0].value)).toDestination()
@@ -562,15 +641,178 @@ export function usePlayback({
       scheduleNoteStart()
     }
 
-    setManagedPlaybackTimeout(() => {
-      if (sessionId !== playbackSessionRef.current) return
-      markPlaybackPitchReleased(notePitch)
-    }, baseDelayMs + remainingDurationSeconds * 1000)
+    if (visualFeedback) {
+      setManagedPlaybackTimeout(() => {
+        if (sessionId !== playbackSessionRef.current) return
+        markPlaybackPitchReleased(notePitch)
+      }, baseDelayMs + remainingDurationSeconds * 1000)
+    }
+  }
+
+  function getSimplePlaybackEventNote(
+    track: ActivePlaybackTrack,
+    note: Note,
+    currentBeat: number,
+    timeline: ReturnType<typeof buildTempoTimeline>,
+  ): PlaybackEventNote | null {
+    if (!track.instrument.supportsChordTrigger || track.isDrum || hasAnyControlAutomation(note)) return null
+    if (Math.abs(note.pitchBend ?? 0) > 0.001) return null
+    if (Math.abs(note.pan ?? 0) > 0.01) return null
+    if (Math.abs(note.modulation ?? 0) > 0.01) return null
+    if (Math.abs(note.reverb ?? 0) > 0.01) return null
+    if (Math.abs((note.volume ?? 1) - 1) > 0.001) return null
+    if (Math.abs((note.expression ?? 1) - 1) > 0.001) return null
+
+    const playbackStartBeat = Math.max(currentBeat, note.startBeat)
+    const playbackEndBeat = note.startBeat + note.durationBeats
+    if (playbackEndBeat <= playbackStartBeat) return null
+
+    return {
+      durationSeconds: Math.max(
+        0.04,
+        getSecondsBetweenBeatsFromTimeline(timeline, playbackStartBeat, playbackEndBeat),
+      ),
+      note,
+      noteInput: track.instrument.expectsMidi
+        ? note.pitch
+        : Tone.Frequency(note.pitch, 'midi').toFrequency(),
+      playbackStartBeat,
+      simple: true,
+      track,
+      velocity: Math.max(0.001, note.velocity),
+    }
+  }
+
+  function buildPlaybackEvents(startBeat: number, timeline: ReturnType<typeof buildTempoTimeline>) {
+    const eventsByTime = new Map<number, PlaybackEvent>()
+
+    activePlaybackTracksRef.current.forEach((track) => {
+      track.notes.forEach((note) => {
+        if (note.startBeat + note.durationBeats <= startBeat) return
+
+        const timeSeconds = getSecondsAtBeatFromTimeline(timeline, Math.max(startBeat, note.startBeat))
+        const key = Math.round(timeSeconds * 1000)
+        const event = eventsByTime.get(key) ?? { timeSeconds, notes: [] }
+        const simple = getSimplePlaybackEventNote(track, note, startBeat, timeline)
+        event.notes.push(simple ?? {
+          durationSeconds: Math.max(
+            0.04,
+            getSecondsBetweenBeatsFromTimeline(
+              timeline,
+              Math.max(startBeat, note.startBeat),
+              note.startBeat + note.durationBeats,
+            ),
+          ),
+          note,
+          noteInput: 0,
+          playbackStartBeat: Math.max(startBeat, note.startBeat),
+          simple: false,
+          track,
+          velocity: Math.max(0.001, note.velocity),
+        })
+        eventsByTime.set(key, event)
+      })
+    })
+
+    return Array.from(eventsByTime.values()).sort((left, right) => left.timeSeconds - right.timeSeconds)
+  }
+
+  function schedulePlaybackEvent(event: PlaybackEvent, targetTime: number, sessionId: number) {
+    if (sessionId !== playbackSessionRef.current) return
+
+    const simpleByTrackAndShape = new Map<string, PlaybackEventNote[]>()
+    event.notes.forEach((item) => {
+      if (!item.simple) return
+      const key = [
+        item.track.id,
+        Math.round(item.durationSeconds * 1000),
+        Math.round(item.velocity * 1000),
+      ].join(':')
+      const group = simpleByTrackAndShape.get(key) ?? []
+      group.push(item)
+      simpleByTrackAndShape.set(key, group)
+    })
+
+    simpleByTrackAndShape.forEach((group) => {
+      const first = group[0]
+      if (!first) return
+
+      first.track.instrument.triggerAttackRelease(
+        group.map((item) => item.noteInput),
+        first.durationSeconds,
+        targetTime,
+        first.velocity,
+      )
+    })
+
+    event.notes.forEach((item) => {
+      if (item.simple) return
+      schedulePlaybackNote(item.track, item.note, item.playbackStartBeat, sessionId, {
+        delayMs: Math.max(0, (targetTime - Tone.now()) * 1000),
+        durationSeconds: item.durationSeconds,
+        visualFeedback: false,
+      })
+    })
+  }
+
+  function schedulePlaybackEvents() {
+    const sessionId = playbackSessionRef.current
+    const currentSongSeconds = playbackStartSecondsRef.current + (Tone.now() - playbackAudioStartTimeRef.current)
+    const scheduleUntilSeconds = currentSongSeconds + PLAYBACK_LOOKAHEAD_SECONDS
+
+    while (playbackEventIndexRef.current < playbackEventsRef.current.length) {
+      const event = playbackEventsRef.current[playbackEventIndexRef.current]
+      if (event.timeSeconds > scheduleUntilSeconds) break
+
+      playbackEventIndexRef.current += 1
+      schedulePlaybackEvent(
+        event,
+        playbackAudioStartTimeRef.current + event.timeSeconds - playbackStartSecondsRef.current,
+        sessionId,
+      )
+    }
   }
 
   function schedulePlaybackWindow(currentBeat: number) {
     const windowEndBeat = currentBeat + PLAYBACK_LOOKAHEAD_BEATS
     const sessionId = playbackSessionRef.current
+    const timeline = playbackTempoTimelineRef.current.length > 0
+      ? playbackTempoTimelineRef.current
+      : buildTempoTimeline(projectRef.current, totalBeats)
+
+    function getSimpleScheduledNote(track: ActivePlaybackTrack, note: Note) {
+      if (!track.instrument.supportsChordTrigger || track.isDrum || hasAnyControlAutomation(note)) return null
+      if (Math.abs(note.pitchBend ?? 0) > 0.001) return null
+      if (Math.abs(note.pan ?? 0) > 0.01) return null
+      if (Math.abs(note.modulation ?? 0) > 0.01) return null
+      if (Math.abs(note.reverb ?? 0) > 0.01) return null
+      if (Math.abs((note.volume ?? 1) - 1) > 0.001) return null
+      if (Math.abs((note.expression ?? 1) - 1) > 0.001) return null
+
+      const playbackStartBeat = Math.max(currentBeat, note.startBeat)
+      const playbackEndBeat = note.startBeat + note.durationBeats
+      if (playbackEndBeat <= playbackStartBeat) return null
+
+      const delayMs = Math.max(
+        0,
+        (getSecondsAtBeatFromTimeline(timeline, note.startBeat) - getSecondsAtBeatFromTimeline(timeline, currentBeat)) * 1000,
+      )
+      const durationSeconds = Math.max(
+        0.04,
+        getSecondsBetweenBeatsFromTimeline(timeline, playbackStartBeat, playbackEndBeat),
+      )
+      const noteInput = track.instrument.expectsMidi
+        ? note.pitch
+        : Tone.Frequency(note.pitch, 'midi').toFrequency()
+      const velocity = Math.max(0.001, note.velocity)
+
+      return {
+        delayMs,
+        durationSeconds,
+        noteInput,
+        velocity,
+      }
+    }
 
     activePlaybackTracksRef.current.forEach((track) => {
       const notesToSchedule: Note[] = []
@@ -588,8 +830,79 @@ export function usePlayback({
 
       if (notesToSchedule.length === 0) return
 
+      const momentGroups = new Map<number, {
+        routed: Array<{ durationSeconds: number; note: Note }>
+        simple: NonNullable<ReturnType<typeof getSimpleScheduledNote>>[]
+      }>()
+
       notesToSchedule.forEach((note) => {
-        schedulePlaybackNote(track, note, currentBeat, sessionId)
+        const delayMs = Math.max(
+          0,
+          (getSecondsAtBeatFromTimeline(
+            timeline,
+            note.startBeat,
+          ) - getSecondsAtBeatFromTimeline(timeline, currentBeat)) * 1000,
+        )
+        const momentKey = Math.round(delayMs)
+        const moment = momentGroups.get(momentKey) ?? { routed: [], simple: [] }
+        const simple = getSimpleScheduledNote(track, note)
+
+        if (simple) {
+          moment.simple.push(simple)
+        } else {
+          moment.routed.push({
+            note,
+            durationSeconds: Math.max(
+              0.04,
+              getSecondsBetweenBeatsFromTimeline(
+                timeline,
+                Math.max(currentBeat, note.startBeat),
+                note.startBeat + note.durationBeats,
+              ),
+            ),
+          })
+        }
+
+        momentGroups.set(momentKey, moment)
+      })
+
+      const visualFeedback = notesToSchedule.length <= 24
+
+      momentGroups.forEach((moment, delayMs) => {
+        setManagedPlaybackTimeout(() => {
+          if (sessionId !== playbackSessionRef.current) return
+
+          const simpleGroups = new Map<string, typeof moment.simple>()
+          moment.simple.forEach((simple) => {
+            const key = [
+              Math.round(simple.durationSeconds * 1000),
+              Math.round(simple.velocity * 1000),
+            ].join(':')
+            const group = simpleGroups.get(key) ?? []
+            group.push(simple)
+            simpleGroups.set(key, group)
+          })
+
+          simpleGroups.forEach((group) => {
+            const first = group[0]
+            if (!first) return
+
+            track.instrument.triggerAttackRelease(
+              group.map((item) => item.noteInput),
+              first.durationSeconds,
+              Tone.now(),
+              first.velocity,
+            )
+          })
+
+          moment.routed.forEach(({ durationSeconds, note }) => {
+            schedulePlaybackNote(track, note, currentBeat, sessionId, {
+              delayMs: 0,
+              durationSeconds,
+              visualFeedback: visualFeedback && moment.routed.length <= 24,
+            })
+          })
+        }, delayMs)
       })
     })
   }
@@ -609,19 +922,26 @@ export function usePlayback({
       }
 
       activeTrack.isDrum = isDrumInstrument(sourceTrack.instrumentId)
-      activeTrack.pan = sourceTrack.pan ?? 0
       const sourceNotes = currentProject.notesByTrack[sourceTrack.id] ?? []
+      const sourcePan = sourceTrack.pan ?? 0
       if (
         activeTrack.sourceNotes === sourceNotes &&
         activeTrack.sourceInstrumentId === sourceTrack.instrumentId &&
+        activeTrack.sourcePan === sourcePan &&
         activeTrack.sourceVolume === sourceTrack.volume
       ) {
         return
       }
 
-      activeTrack.notes = getPreparedPlaybackNotes(currentProject, sourceTrack, loopLengthBeats)
+      const prepared = preparePlaybackNotesForTrack(
+        sourcePan,
+        getPreparedPlaybackNotes(currentProject, sourceTrack, loopLengthBeats),
+      )
+      activeTrack.notes = prepared.notes
+      activeTrack.pan = prepared.pan
       activeTrack.sourceInstrumentId = sourceTrack.instrumentId
       activeTrack.sourceNotes = sourceNotes
+      activeTrack.sourcePan = sourcePan
       activeTrack.sourceVolume = sourceTrack.volume
     })
   }
@@ -696,6 +1016,7 @@ export function usePlayback({
             {
               delayMs: Math.max(0, delaySeconds * 1000),
               durationSeconds: Math.max(0.04, durationSeconds),
+              visualFeedback: track.notes.length <= 500,
             },
           )
           noteIndex += 1
@@ -823,18 +1144,23 @@ export function usePlayback({
     arrangedPlaybackProject.tracks.forEach((track) => {
       if (track.mute || (hasSoloTrack && !track.solo)) return
 
-      const notes = getPreparedPlaybackNotes(
-        arrangedPlaybackProject,
-        track,
-        loopState.enabled ? playbackTotalBeats : undefined,
+      const prepared = preparePlaybackNotesForTrack(
+        track.pan ?? 0,
+        getPreparedPlaybackNotes(
+          arrangedPlaybackProject,
+          track,
+          loopState.enabled ? playbackTotalBeats : undefined,
+        ),
       )
+      const notes = prepared.notes
+      const pan = prepared.pan
 
       if (!loopState.enabled && notes.length === 0) return
 
       const instrument = createInstrument(track.instrumentId)
       const panner =
-        Math.abs(track.pan ?? 0) > 0.01
-          ? new Tone.Panner(Math.max(-1, Math.min(1, track.pan ?? 0))).toDestination()
+        Math.abs(pan) > 0.01
+          ? new Tone.Panner(pan).toDestination()
           : undefined
       if (panner) {
         instrument.disconnect?.()
@@ -847,7 +1173,7 @@ export function usePlayback({
         instrument,
         isDrum: isDrumInstrument(track.instrumentId),
         notes,
-        pan: track.pan ?? 0,
+        pan,
         panner,
         nextIndex: loopState.enabled
           ? 0
@@ -855,6 +1181,7 @@ export function usePlayback({
         scheduledLoopNoteKeys: loopState.enabled ? new Set<string>() : undefined,
         sourceInstrumentId: track.instrumentId,
         sourceNotes: arrangedPlaybackProject.notesByTrack[track.id] ?? [],
+        sourcePan: track.pan ?? 0,
         sourceVolume: track.volume,
       })
     })
@@ -879,6 +1206,7 @@ export function usePlayback({
 
     playbackStartBeatRef.current = safeStartBeat
     playbackStartMsRef.current = performance.now()
+    playbackAudioStartTimeRef.current = Tone.now()
     setPlaybackPosition(safeStartBeat)
     setIsPlaying(true)
     if (loopState.enabled) {
@@ -892,10 +1220,12 @@ export function usePlayback({
     }
 
     schedulePlaybackAudioClips(arrangedPlaybackProject, safeStartBeat, sessionId)
-    schedulePlaybackWindow(safeStartBeat)
+    playbackEventsRef.current = buildPlaybackEvents(safeStartBeat, playbackTimeline)
+    playbackEventIndexRef.current = 0
+    schedulePlaybackEvents()
     activeIntervalsRef.current.push(
       window.setInterval(() => {
-        schedulePlaybackWindow(getLivePlaybackBeat())
+        schedulePlaybackEvents()
       }, PLAYBACK_SCHEDULER_MS),
     )
     activeTimeoutsRef.current.push(

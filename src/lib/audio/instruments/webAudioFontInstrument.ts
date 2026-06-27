@@ -125,13 +125,27 @@ export function createWebAudioFontInstrument(instrumentId: InstrumentId, fallbac
     ready,
     readyTimeoutMs: 7500,
     triggerAttack: (note, time, velocity) => {
+      if (Array.isArray(note)) {
+        note.forEach((item) => play(item, 2, time, velocity))
+        return
+      }
       play(note, 2, time, velocity)
     },
-    triggerAttackRelease: play,
-    triggerRelease: () => {
+    triggerAttackRelease: (note, duration, time, velocity) => {
+      if (Array.isArray(note)) {
+        note.forEach((item) => play(item, duration, time, velocity))
+        return undefined
+      }
+      return play(note, duration, time, velocity)
+    },
+    triggerRelease: (note) => {
+      if (Array.isArray(note)) {
+        activeSources.forEach((source) => source.stop())
+        activeSources.clear()
+        return
+      }
       activeSources.forEach((source) => source.stop())
       activeSources.clear()
     },
   }
 }
-

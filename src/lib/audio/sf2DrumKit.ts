@@ -589,6 +589,12 @@ export function createSf2DrumKitInstrument(
     ready,
     triggerAttackRelease(note, duration, time, velocity = 0.75) {
       if (disposed) return undefined
+      if (Array.isArray(note)) {
+        note.forEach((item) => {
+          void this.triggerAttackRelease(item, duration, time, velocity)
+        })
+        return undefined
+      }
       if (!triggerSf2(note, time, velocity)) {
         return fallback.triggerAttackRelease(note, Math.max(duration, getMinimumDrumHitSeconds(Math.round(note))), time, velocity)
       }
@@ -596,6 +602,12 @@ export function createSf2DrumKitInstrument(
     },
     triggerAttack(note, time, velocity = 0.75) {
       if (disposed) return undefined
+      if (Array.isArray(note)) {
+        note.forEach((item) => {
+          void this.triggerAttack(item, time, velocity)
+        })
+        return undefined
+      }
       if (!triggerSf2(note, time, velocity)) {
         return fallback.triggerAttack(note, time, velocity)
       }
@@ -608,6 +620,13 @@ export function createSf2DrumKitInstrument(
           samples.forEach((sample) => stopSample(sample, time, true))
         })
         activeSamples.clear()
+        return undefined
+      }
+
+      if (Array.isArray(note)) {
+        note.forEach((item) => {
+          void this.triggerRelease(item, time)
+        })
         return undefined
       }
 

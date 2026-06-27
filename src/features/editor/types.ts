@@ -170,6 +170,7 @@ export type ActivePlaybackTrack = {
   scheduledLoopNoteKeys?: Set<string>
   sourceInstrumentId?: string
   sourceNotes?: Note[]
+  sourcePan?: number
   sourceVolume?: number
 }
 

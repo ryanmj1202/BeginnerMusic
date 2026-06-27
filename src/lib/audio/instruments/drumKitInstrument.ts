@@ -391,11 +391,11 @@ export function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrumen
     expectsMidi: true,
     triggerAttackRelease(note, _duration, _time, velocity) {
       if (disposed) return
-      playDrumHit(note, velocity)
+      ;(Array.isArray(note) ? note : [note]).forEach((item) => playDrumHit(item, velocity))
     },
     triggerAttack(note, _time, velocity) {
       if (disposed) return
-      playDrumHit(note, velocity)
+      ;(Array.isArray(note) ? note : [note]).forEach((item) => playDrumHit(item, velocity))
     },
     triggerRelease() {},
     dispose() {
@@ -408,4 +408,3 @@ export function createDrumKitInstrument(mode: InstrumentMode): BeginnerInstrumen
     },
   }
 }
-

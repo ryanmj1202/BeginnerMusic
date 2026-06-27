@@ -28,17 +28,20 @@
   position: absolute;
   left: 0;
   top: 13px;
-  width: var(--playhead-left, 0%);
+  width: 100%;
   height: 6px;
   border-radius: 0 6px 6px 0;
   background: rgba(83, 101, 217, 0.62);
   pointer-events: none;
+  transform: scaleX(var(--playhead-progress, 0));
+  transform-origin: left center;
+  will-change: transform;
   z-index: 1;
 }
 
 .timeline-seek-handle {
   position: absolute;
-  left: var(--playhead-left, 0%);
+  left: 0;
   top: 7px;
   width: 14px;
   height: 18px;
@@ -47,7 +50,8 @@
   background: #5365d9;
   box-shadow: 0 0 0 3px rgba(83, 101, 217, 0.22);
   pointer-events: none;
-  transform: translateX(-50%);
+  transform: translateX(calc(var(--playhead-x, 0px) - 50%));
+  will-change: transform;
   z-index: 4;
 }
 
@@ -110,14 +114,14 @@
 
 .roll-playhead {
   position: absolute;
-  left: var(--playhead-left, 0%);
+  left: 0;
   top: 0;
   bottom: 0;
   width: 1px;
   background: #ff3131;
   opacity: 0.9;
-  transform: translateX(-0.5px);
-  will-change: left;
+  transform: translateX(calc(var(--playhead-x, 0px) - 0.5px));
+  will-change: transform;
 }
 
 .collaboration-remote-cursor {
@@ -445,4 +449,3 @@
   left: -3px;
   right: auto;
 }
-

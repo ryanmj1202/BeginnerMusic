@@ -13,6 +13,24 @@ import {
   getSecondsAtBeatFromTimeline,
 } from '../helpers'
 
+function getRollGridWidth(roll, totalBeats, rollZoom) {
+  const cssGridWidth = Number.parseFloat(getComputedStyle(roll).getPropertyValue('--roll-grid-width'))
+  return Number.isFinite(cssGridWidth) && cssGridWidth > 0
+    ? cssGridWidth
+    : Math.max(totalBeats * DEFAULT_BEAT_WIDTH * rollZoom, roll.clientWidth - KEY_COLUMN_WIDTH)
+}
+
+function updatePlayheadStyle(roll, beat, totalBeats, gridWidth) {
+  const progress = totalBeats > 0 ? Math.max(0, Math.min(1, beat / totalBeats)) : 0
+  const x = progress * gridWidth
+
+  roll.querySelector('.roll-playhead')?.style.setProperty('transform', `translate3d(${x - 0.5}px, 0, 0)`)
+  roll.querySelector('.timeline-seek-handle')?.style.setProperty('transform', `translate3d(${x}px, 0, 0) translateX(-50%)`)
+  roll.querySelector('.timeline-seek-fill')?.style.setProperty('transform', `scaleX(${progress})`)
+
+  return { gridWidth, progress }
+}
+
 export function usePlaybackScroll(options) {
   const {
     eraseRef,
@@ -30,6 +48,7 @@ export function usePlaybackScroll(options) {
     projectRef,
     rightEraseRef,
     rollZoom,
+    setPlaybackBeat,
     totalBeatsRef,
   } = options
 
@@ -37,9 +56,21 @@ export function usePlaybackScroll(options) {
     if (!isPlaying) return
 
     let frameId = 0
+    let lastStateBeatUpdateAt = 0
+    let cachedRoll = pianoRollRef.current
+    let cachedTotalBeats = Math.max(1, totalBeatsRef.current)
+    let cachedGridWidth = cachedRoll
+      ? getRollGridWidth(cachedRoll, cachedTotalBeats, rollZoom)
+      : 0
     const tick = () => {
       const now = performance.now()
       const totalBeats = Math.max(1, totalBeatsRef.current)
+      const roll = pianoRollRef.current
+      if (roll !== cachedRoll || totalBeats !== cachedTotalBeats) {
+        cachedRoll = roll
+        cachedTotalBeats = totalBeats
+        cachedGridWidth = roll ? getRollGridWidth(roll, totalBeats, rollZoom) : 0
+      }
       const loopSettings = getWorkstationLoopSettings(projectRef.current)
       const playbackTotalBeats = loopSettings.enabled
         ? Math.max(1, Math.min(totalBeats, loopSettings.lengthBeats))
@@ -58,9 +89,14 @@ export function usePlaybackScroll(options) {
       )
 
       playbackBeatRef.current = currentBeat
-      pianoRollRef.current?.style.setProperty('--playhead-left', `${Math.min(100, (currentBeat / totalBeats) * 100)}%`)
+      if (typeof setPlaybackBeat === 'function' && now - lastStateBeatUpdateAt >= 33) {
+        lastStateBeatUpdateAt = now
+        setPlaybackBeat(currentBeat)
+      }
 
-      const roll = pianoRollRef.current
+      const playheadStyle = roll
+        ? updatePlayheadStyle(roll, currentBeat, totalBeats, cachedGridWidth)
+        : null
       const userIsEditingRoll =
         Boolean(noteDragRef.current?.active) ||
         Boolean(patternSelectionRef.current?.active) ||
@@ -76,8 +112,8 @@ export function usePlaybackScroll(options) {
         now - lastPlayheadAutoScrollAtRef.current >= PLAYHEAD_AUTO_SCROLL_THROTTLE_MS
       ) {
         lastPlayheadAutoScrollAtRef.current = now
-        const gridWidth = Math.max(totalBeats * DEFAULT_BEAT_WIDTH * rollZoom, roll.scrollWidth - KEY_COLUMN_WIDTH)
-        const playheadX = KEY_COLUMN_WIDTH + (currentBeat / totalBeats) * gridWidth
+        const gridWidth = playheadStyle?.gridWidth ?? cachedGridWidth
+        const playheadX = KEY_COLUMN_WIDTH + (playheadStyle?.progress ?? currentBeat / totalBeats) * gridWidth
         const viewportLeft = roll.scrollLeft
         const viewportRight = viewportLeft + roll.clientWidth
 

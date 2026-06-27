@@ -81,6 +81,7 @@ function wrapPolySynthInstrument(synth: Tone.PolySynth): BeginnerInstrument {
       synth.volume.setValueAtTime(-96, now)
       synth.dispose()
     },
+    supportsChordTrigger: true,
   }
 }
 
@@ -331,4 +332,3 @@ export function createSynthInstrument(
     },
   })
 }
-

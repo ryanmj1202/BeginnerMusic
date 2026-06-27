@@ -131,11 +131,19 @@ export function createIsolatedSoundFontInstrument(
 
   sampler.connect(destination)
 
-  function addTrackedNote(note: number) {
-    activeNotes.set(note, (activeNotes.get(note) ?? 0) + 1)
+  function addTrackedNote(note: number | number[]) {
+    const notes = Array.isArray(note) ? note : [note]
+    notes.forEach((item) => {
+      activeNotes.set(item, (activeNotes.get(item) ?? 0) + 1)
+    })
   }
 
-  function releaseTrackedNote(note: number, time?: number) {
+  function releaseTrackedNote(note: number | number[], time?: number) {
+    if (Array.isArray(note)) {
+      note.forEach((item) => releaseTrackedNote(item, time))
+      return
+    }
+
     const nextCount = (activeNotes.get(note) ?? 1) - 1
     if (nextCount > 0) {
       activeNotes.set(note, nextCount)
@@ -145,7 +153,7 @@ export function createIsolatedSoundFontInstrument(
     if (isReady) sampler.triggerRelease(note, time)
   }
 
-  function scheduleTrackedRelease(note: number, duration: number, time?: number) {
+  function scheduleTrackedRelease(note: number | number[], duration: number, time?: number) {
     addTrackedNote(note)
     const waitMs = Math.max(0, ((time ?? Tone.now()) - Tone.now() + duration + 0.08) * 1000)
     const timeoutId = window.setTimeout(() => {
@@ -157,6 +165,7 @@ export function createIsolatedSoundFontInstrument(
 
   return {
     ready,
+    supportsChordTrigger: true,
     connect(node) {
       if (outputNode === node) return node
       sampler.disconnect(outputNode as any)
@@ -243,11 +252,19 @@ export function createSoundFontInstrument(
 
   entry.sampler.connect(destination)
 
-  function addTrackedNote(note: number) {
-    activeNotes.set(note, (activeNotes.get(note) ?? 0) + 1)
+  function addTrackedNote(note: number | number[]) {
+    const notes = Array.isArray(note) ? note : [note]
+    notes.forEach((item) => {
+      activeNotes.set(item, (activeNotes.get(item) ?? 0) + 1)
+    })
   }
 
-  function releaseTrackedNote(note: number, time?: number) {
+  function releaseTrackedNote(note: number | number[], time?: number) {
+    if (Array.isArray(note)) {
+      note.forEach((item) => releaseTrackedNote(item, time))
+      return
+    }
+
     const nextCount = (activeNotes.get(note) ?? 1) - 1
     if (nextCount > 0) {
       activeNotes.set(note, nextCount)
@@ -259,7 +276,7 @@ export function createSoundFontInstrument(
     entry.sampler.triggerRelease(note, time)
   }
 
-  function scheduleTrackedRelease(note: number, duration: number, time?: number) {
+  function scheduleTrackedRelease(note: number | number[], duration: number, time?: number) {
     addTrackedNote(note)
     const waitMs = Math.max(0, ((time ?? Tone.now()) - Tone.now() + duration + 0.08) * 1000)
     const timeoutId = window.setTimeout(() => {
@@ -271,6 +288,7 @@ export function createSoundFontInstrument(
 
   return {
     ready: entry.ready,
+    supportsChordTrigger: true,
     connect(node) {
       if (outputNode === node) return node
       if (outputNode !== destination) {
@@ -352,4 +370,3 @@ export function createSoundFontInstrument(
     },
   }
 }
-

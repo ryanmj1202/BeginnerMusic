@@ -4,15 +4,16 @@ export type BeginnerInstrument = {
   expectsMidi?: boolean
   readyTimeoutMs?: number
   ready?: Promise<void>
+  supportsChordTrigger?: boolean
   setPitchBend?: (cents: number, time?: number, rampSeconds?: number) => unknown
   triggerAttackRelease: (
-    note: number,
+    note: number | number[],
     duration: number,
     time?: number,
     velocity?: number,
   ) => unknown
-  triggerAttack: (note: number, time?: number, velocity?: number) => unknown
-  triggerRelease: (note?: number, time?: number) => unknown
+  triggerAttack: (note: number | number[], time?: number, velocity?: number) => unknown
+  triggerRelease: (note?: number | number[], time?: number) => unknown
   dispose: () => unknown
 }
 

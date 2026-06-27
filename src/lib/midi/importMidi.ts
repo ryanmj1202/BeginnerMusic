@@ -45,6 +45,21 @@ type TrackState = {
   programByChannel: Map<number, number>
 }
 
+function getCommonEventPan(events: MidiEvent[]) {
+  let commonPan: number | null = null
+
+  for (const event of events) {
+    if (event.pan === undefined) return undefined
+    if (commonPan === null) {
+      commonPan = event.pan
+      continue
+    }
+    if (Math.abs(commonPan - event.pan) > 0.001) return undefined
+  }
+
+  return commonPan ?? undefined
+}
+
 class MidiReader {
   private offset = 0
   private readonly bytes: Uint8Array
@@ -350,16 +365,21 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
   })
 
   const usedTrackIndexes = Array.from(new Set(events.map((event) => event.trackIndex)))
+  const commonPanByTrackIndex = new Map<number, number>()
   const tracks: Track[] = usedTrackIndexes.map((trackIndex, index) => {
     const state = trackStates[trackIndex]
-    const firstEvent = events.find((event) => event.trackIndex === trackIndex)
+    const trackEvents = events.filter((event) => event.trackIndex === trackIndex)
+    const firstEvent = trackEvents[0]
     const program = state?.programByChannel.get(firstEvent?.channel ?? 0) ?? 0
+    const commonPan = getCommonEventPan(trackEvents)
+    if (commonPan !== undefined) commonPanByTrackIndex.set(trackIndex, commonPan)
 
     return {
       id: createImportId('track', index),
       name: state?.name || getInstrumentLabel(programToInstrument(program, firstEvent?.channel ?? 0)),
       instrumentId: programToInstrument(program, firstEvent?.channel ?? 0),
       volume: 0.85,
+      ...(commonPan !== undefined ? { pan: commonPan } : {}),
       mute: false,
       solo: false,
       channel: firstEvent ? firstEvent.channel + 1 : index + 1,
@@ -371,6 +391,7 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
 
   usedTrackIndexes.forEach((trackIndex, index) => {
     const track = tracks[index]
+    const commonPan = commonPanByTrackIndex.get(trackIndex)
     notesByTrack[track.id] = events
       .filter((event) => event.trackIndex === trackIndex)
       .map((event, noteIndex) => ({
@@ -380,7 +401,7 @@ export function importMidiProject(buffer: ArrayBuffer, title = '불러온 MIDI')
         durationBeats: Math.max(0.25, (event.endTick - event.startTick) / ticksPerBeat),
         velocity: Math.max(0.1, event.velocity),
         ...(event.modulation !== undefined ? { modulation: event.modulation } : {}),
-        ...(event.pan !== undefined ? { pan: event.pan } : {}),
+        ...(event.pan !== undefined && event.pan !== commonPan ? { pan: event.pan } : {}),
       }))
   })
 
