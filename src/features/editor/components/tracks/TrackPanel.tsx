@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   CSSProperties,
   Dispatch,
   MouseEvent as ReactMouseEvent,
@@ -7,17 +7,17 @@
 import {
   getInstrumentImage,
   getInstrumentLabel,
-} from '../../../lib/midi/generalMidi'
+} from '../../../../lib/midi/generalMidi'
 import type {
   Project,
   Track,
-} from '../../../types/music'
+} from '../../../../types/music'
 import {
   TRACK_COLORS,
-} from '../constants'
+} from '../../constants'
 import type {
   EditorTab,
-} from '../types'
+} from '../../types'
 
 type TrackPanelProps = {
   addTrack: () => void

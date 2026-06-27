@@ -9,17 +9,17 @@ import {
   getInstrumentIcon,
   getInstrumentImage,
   getInstrumentLabel,
-} from '../../../lib/midi/generalMidi'
+} from '../../../../lib/midi/generalMidi'
 import {
   WORKSTATION_LOOP_LENGTH_OPTIONS,
   getWorkstationLoopSettings,
   setWorkstationLoopSettings,
   subscribeWorkstationLoopSettings,
   type WorkstationLoopSettings,
-} from '../../../lib/workstationLoop'
-import type { Track } from '../../../types/music'
-import { NOTE_DIVISIONS, ROLL_ZOOM_LEVELS } from '../constants'
-import type { NoteDivision, RollZoom, ToolMode } from '../types'
+} from '../../../../lib/workstationLoop'
+import type { Track } from '../../../../types/music'
+import { NOTE_DIVISIONS, ROLL_ZOOM_LEVELS } from '../../constants'
+import type { NoteDivision, RollZoom, ToolMode } from '../../types'
 
 type PianoRollToolbarProps = {
   changeToolMode: (nextToolMode: ToolMode) => void

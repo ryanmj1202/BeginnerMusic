@@ -1,5 +1,5 @@
 import * as Tone from 'tone'
-import type { BeginnerInstrument, InstrumentMode } from './toneTransport'
+import type { BeginnerInstrument, InstrumentMode } from './instruments/instrumentTypes'
 
 export type DrumKitStyle = 'power' | 'standard'
 

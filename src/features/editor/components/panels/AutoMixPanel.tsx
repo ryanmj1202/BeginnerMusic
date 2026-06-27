@@ -1,7 +1,7 @@
-﻿import { useState, type CSSProperties, type DragEvent } from 'react'
-import type { AutoMixGenre, AutoMixSettings, Project } from '../../../types/music'
-import { getInstrumentImage, getInstrumentLabel } from '../../../lib/midi/generalMidi'
-import { AUTO_MIX_GENRES, getAutoMixGenrePreset, getAutoMixRecommendedPriority, getAutoMixSettings } from '../utils/autoMixProject'
+import { useState, type CSSProperties, type DragEvent } from 'react'
+import type { AutoMixGenre, AutoMixSettings, Project } from '../../../../types/music'
+import { getInstrumentImage, getInstrumentLabel } from '../../../../lib/midi/generalMidi'
+import { AUTO_MIX_GENRES, getAutoMixGenrePreset, getAutoMixRecommendedPriority, getAutoMixSettings } from '../../utils/autoMixProject'
 
 type AutoMixPanelProps = {
   applyAutoMix: () => void

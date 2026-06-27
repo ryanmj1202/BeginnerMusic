@@ -3,20 +3,20 @@ import type {
   SetStateAction,
 } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { isDrumInstrument } from '../../../lib/audio/toneTransport'
+import { isDrumInstrument } from '../../../../lib/audio/toneTransport'
 import {
   createOnlineWebAudioFontInstrumentId,
   getInstrumentImage,
-} from '../../../lib/midi/generalMidi'
+} from '../../../../lib/midi/generalMidi'
 import type {
   InstrumentId,
   Track,
-} from '../../../types/music'
+} from '../../../../types/music'
 import {
   INSTRUMENT_CATEGORY_IMAGES,
   INSTRUMENT_OPTIONS,
-} from '../constants'
-import { getCategoryLabel } from '../helpers'
+} from '../../constants'
+import { getCategoryLabel } from '../../helpers'
 
 type InstrumentOption = (typeof INSTRUMENT_OPTIONS)[number]
 type CloudInstrument = {

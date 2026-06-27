@@ -1,5 +1,5 @@
-﻿import { type ChangeEvent, type Dispatch, type RefObject, type SetStateAction } from 'react'
-import type { EditorTab } from '../types'
+import { type ChangeEvent, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import type { EditorTab } from '../../types'
 
 type TopMenuProps = {
   activeEditorTab: EditorTab

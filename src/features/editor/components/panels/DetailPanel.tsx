@@ -1,20 +1,20 @@
-﻿import type {
+import type {
   Dispatch,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   SetStateAction,
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import type { Note } from '../../../types/music'
-import { TERMINOLOGY_HELP } from '../constants'
-import { getPitchName } from '../helpers'
+import type { Note } from '../../../../types/music'
+import { TERMINOLOGY_HELP } from '../../constants'
+import { getPitchName } from '../../helpers'
 import {
   clampNoteControlValue,
   getAutomatedNoteControlValue,
   getNoteControlAutomation,
   quantizeValue,
-} from '../utils/noteControlUtils'
-import type { EditableNoteControlKey } from '../types'
+} from '../../utils/noteControlUtils'
+import type { EditableNoteControlKey } from '../../types'
 
 type ActiveNoteControl = {
   format: (value: number) => string

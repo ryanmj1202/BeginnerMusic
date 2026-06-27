@@ -5,14 +5,14 @@ import type {
   ReactNode,
   SetStateAction,
 } from 'react'
-import type { TempoSection } from '../../../types/music'
+import type { TempoSection } from '../../../../types/music'
 import {
   BEATS_PER_BAR,
   TEMPO_GRAPH_MAX,
   TEMPO_GRAPH_MIN,
   TEMPO_INPUT_MAX,
   TEMPO_INPUT_MIN,
-} from '../constants'
+} from '../../constants'
 
 type TempoPanelProps = {
   addTempoSection: () => void

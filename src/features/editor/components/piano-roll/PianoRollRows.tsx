@@ -3,10 +3,10 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { isDrumInstrument } from '../../../lib/audio/toneTransport'
-import type { Note, Track } from '../../../types/music'
-import { NOTE_NAMES, TRACK_COLORS } from '../constants'
-import type { OtherNote, TrackNote } from '../types'
+import { isDrumInstrument } from '../../../../lib/audio/toneTransport'
+import type { Note, Track } from '../../../../types/music'
+import { NOTE_NAMES, TRACK_COLORS } from '../../constants'
+import type { OtherNote, TrackNote } from '../../types'
 
 type PianoRollRowsProps = {
   allTrackMelodyMode: boolean
